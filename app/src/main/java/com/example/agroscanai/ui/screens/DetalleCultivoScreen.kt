@@ -21,10 +21,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.agroscanai.data.model.CatalogoFrijol
 import com.example.agroscanai.data.model.Escaneo
 import com.example.agroscanai.data.model.EstadoCultivo
 import com.example.agroscanai.data.model.EstadoEscaneo
 import com.example.agroscanai.ui.components.AgroBottomBar
+import com.example.agroscanai.ui.components.FotoEscaneo
 import com.example.agroscanai.ui.components.PaginaActual
 import com.example.agroscanai.ui.components.RecomendacionCultivo
 import com.example.agroscanai.ui.components.colorEstado
@@ -39,11 +41,11 @@ fun DetalleCultivoScreen(
     onCultivoEliminado: () -> Unit = {},
     onHomeClick: () -> Unit = {},
     onPerfilClick: () -> Unit = {},
+    onEscaneoClick: (escaneoId: String) -> Unit = {},
     cultivosViewModel: CultivosViewModel = viewModel()
 ) {
     val cultivos        by cultivosViewModel.cultivos.collectAsState()
-    val ultimoEscaneo   by cultivosViewModel.ultimoEscaneo.collectAsState()
-    val cargandoEscaneo by cultivosViewModel.cargandoEscaneo.collectAsState()
+    val escaneos        by cultivosViewModel.escaneos.collectAsState()
 
     val cultivo = cultivos.find { it.id == cultivoId }
 
@@ -51,7 +53,7 @@ fun DetalleCultivoScreen(
     var expandedEscaneo   by remember { mutableStateOf(false) }
 
     LaunchedEffect(cultivoId) {
-        cultivosViewModel.cargarUltimoEscaneo(cultivoId)
+        cultivosViewModel.cargarEscaneos(cultivoId)
     }
 
     if (showDeleteDialog) {
@@ -234,7 +236,7 @@ fun DetalleCultivoScreen(
                     Icon(Icons.Filled.Analytics, null, tint = VerdeBosque, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        "Detalle del último escaneo",
+                        "Historial de escaneos (${escaneos.size})",
                         fontSize = 15.sp, fontWeight = FontWeight.Bold, color = VerdeBosque,
                         modifier = Modifier.weight(1f)
                     )
@@ -247,10 +249,11 @@ fun DetalleCultivoScreen(
                 if (expandedEscaneo) {
                     Spacer(Modifier.height(14.dp))
                     when {
-                        cargandoEscaneo -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = VerdeBosque, modifier = Modifier.size(26.dp))
+                        escaneos.isNotEmpty() -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            escaneos.forEach { esc ->
+                                EscaneoHistorialFila(esc = esc, onClick = { onEscaneoClick(esc.id) })
+                            }
                         }
-                        ultimoEscaneo != null -> EscaneoDetalleContent(ultimoEscaneo!!)
                         else -> Text(
                             "Esta parcela aún no tiene escaneos por foto registrados.",
                             fontSize = 13.sp, color = GrisMedio,
@@ -316,37 +319,28 @@ private fun InfoFilaCultivo(icon: ImageVector, label: String, value: String, col
 }
 
 @Composable
-private fun EscaneoDetalleContent(esc: Escaneo) {
-    val analizado = esc.estadoGeneral == EstadoEscaneo.COMPLETADO
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (esc.fecha.isNotBlank())
-            EscaneoFila("Fecha del escaneo", esc.fecha, Icons.Filled.Schedule, GrisMedio)
-        EscaneoFila(
-            "Análisis",
-            if (analizado) "Analizada por el modelo" else "Pendiente de análisis",
-            Icons.Filled.Analytics, Color(0xFF1565C0)
-        )
-        EscaneoFila(
-            "Coordenadas GPS",
-            if (esc.gpsLat != null && esc.gpsLon != null)
-                "Lat: %.5f  Lon: %.5f".format(esc.gpsLat, esc.gpsLon)
-            else "No disponible",
-            Icons.Filled.LocationOn, Color(0xFF6A1B9A)
-        )
-    }
-}
-
-@Composable
-private fun EscaneoFila(label: String, value: String, icon: ImageVector, color: Color) {
+private fun EscaneoHistorialFila(esc: Escaneo, onClick: () -> Unit) {
+    val clase = CatalogoFrijol.porEtiqueta(esc.claseDetectada)
+    val analizado = esc.estadoGeneral == EstadoEscaneo.COMPLETADO && clase != null
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
-        verticalAlignment = Alignment.Top
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { onClick() }
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(icon, null, tint = color, modifier = Modifier.size(17.dp).padding(top = 1.dp))
-        Spacer(Modifier.width(10.dp))
+        FotoEscaneo(
+            ruta = esc.fotoRuta, ladoMaximo = 200,
+            modifier = Modifier.size(52.dp).clip(RoundedCornerShape(8.dp))
+        )
+        Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(label, fontSize = 11.sp, color = GrisMedio, fontWeight = FontWeight.Medium)
-            Text(value, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface, lineHeight = 18.sp)
+            Text(esc.fecha, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface)
+            Text(
+                if (analizado) clase!!.nombre else "Pendiente de análisis",
+                fontSize = 12.sp,
+                color = if (analizado) VerdeBosque else Color(0xFF1565C0)
+            )
         }
+        Icon(Icons.Filled.ChevronRight, null, tint = GrisMedio, modifier = Modifier.size(20.dp))
     }
 }

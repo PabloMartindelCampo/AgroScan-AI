@@ -34,7 +34,7 @@ object Routes {
     const val ESCANEO              = "escaneo"
     const val NOTIFICACIONES       = "notificaciones"
     const val DETALLE_CULTIVO      = "detalle_cultivo/{cultivoId}"
-    const val DETALLE_ESCANEO      = "detalle_escaneo/{escaneoId}"
+    const val DETALLE_ESCANEO      = "detalle_escaneo/{cultivoId}/{escaneoId}"
 
     const val PERFIL               = "perfil"
     const val PERFIL_EDITAR        = "perfil_editar"
@@ -44,7 +44,7 @@ object Routes {
     fun verificacionEmail(email: String)    = "verificacion_email/$email"
     fun bienvenida(nombre: String)          = "bienvenida/${nombre.ifBlank { "Usuario" }}"
     fun detallesCultivo(cultivoId: String)  = "detalle_cultivo/$cultivoId"
-    fun detallesEscaneo(escaneoId: Int)     = "detalle_escaneo/$escaneoId"
+    fun detallesEscaneo(cultivoId: String, escaneoId: String) = "detalle_escaneo/$cultivoId/$escaneoId"
     fun dashboardSaludDetalle(id: String)   = "dashboard_salud_detalle/$id"
     fun perfilInfo(tipo: String)            = "perfil_info/$tipo"
 }
@@ -196,6 +196,9 @@ fun NavGraph(navController: NavHostController) {
                 onHomeClick           = { navController.navigate(Routes.HOME) },
                 onNotificacionesClick = { goNotificaciones() },
                 onPerfilClick         = { navController.navigate(Routes.PERFIL) },
+                onVerEscaneo          = { cultivoId, escaneoId ->
+                    navController.navigate(Routes.detallesEscaneo(cultivoId, escaneoId))
+                },
                 cultivosViewModel     = cultivosViewModel
             )
         }
@@ -231,6 +234,23 @@ fun NavGraph(navController: NavHostController) {
                 onNotificacionesClick = { goNotificaciones() },
                 onCultivoEliminado    = { navController.popBackStack() },
                 onHomeClick           = { navController.navigate(Routes.HOME) },
+                onPerfilClick         = { navController.navigate(Routes.PERFIL) },
+                onEscaneoClick        = { escaneoId ->
+                    navController.navigate(Routes.detallesEscaneo(cultivoId, escaneoId))
+                },
+                cultivosViewModel     = cultivosViewModel
+            )
+        }
+
+        composable(Routes.DETALLE_ESCANEO) { backStackEntry ->
+            val cultivoId = backStackEntry.arguments?.getString("cultivoId") ?: ""
+            val escaneoId = backStackEntry.arguments?.getString("escaneoId") ?: ""
+            DetalleEscaneoScreen(
+                cultivoId             = cultivoId,
+                escaneoId             = escaneoId,
+                onBackClick           = { navController.popBackStack() },
+                onHomeClick           = { navController.navigate(Routes.HOME) },
+                onNotificacionesClick = { goNotificaciones() },
                 onPerfilClick         = { navController.navigate(Routes.PERFIL) },
                 cultivosViewModel     = cultivosViewModel
             )

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Fotos de hojas de los escaneos (almacenamiento interno de la app) -->
+    <files-path name="escaneos" path="escaneos/" />
+</paths>

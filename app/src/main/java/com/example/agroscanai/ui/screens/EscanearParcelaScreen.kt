@@ -1,6 +1,11 @@
 package com.example.agroscanai.ui.screens
 
-import androidx.compose.animation.core.*
+import android.Manifest
+import android.content.ActivityNotFoundException
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -16,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -23,21 +29,31 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.agroscanai.R
+import com.example.agroscanai.data.model.CatalogoFrijol
 import com.example.agroscanai.data.model.Cultivo
+import com.example.agroscanai.data.model.Escaneo
+import com.example.agroscanai.data.model.EstadoEscaneo
+import com.example.agroscanai.data.model.OrigenFoto
 import com.example.agroscanai.data.model.EstadoCultivo
 import com.example.agroscanai.ui.components.AgroBottomBar
+import com.example.agroscanai.ui.components.FotoEscaneo
 import com.example.agroscanai.ui.components.PaginaActual
 import com.example.agroscanai.ui.theme.*
 import com.example.agroscanai.ui.components.colorEstado
 import com.example.agroscanai.ui.viewmodel.CultivosViewModel
+import com.example.agroscanai.utils.FotosEscaneo
+import kotlinx.coroutines.launch
+import java.io.File
 
 
 private enum class PasoEscaneo { SELECCIONAR_PARCELA, ESCANEAR }
@@ -47,13 +63,16 @@ fun EscanearParcelaScreen(
     onHomeClick: () -> Unit = {},
     onNotificacionesClick: () -> Unit = {},
     onPerfilClick: () -> Unit = {},
+    onVerEscaneo: (cultivoId: String, escaneoId: String) -> Unit = { _, _ -> },
     cultivosViewModel: CultivosViewModel = viewModel()
 ) {
     val cultivos     by cultivosViewModel.cultivos.collectAsState()
     val isLoading    by cultivosViewModel.isLoading.collectAsState()
 
-    var paso                  by remember { mutableStateOf(PasoEscaneo.SELECCIONAR_PARCELA) }
-    var cultivoSeleccionado   by remember { mutableStateOf<Cultivo?>(null) }
+    // rememberSaveable: Android puede cerrar la app mientras la cámara está abierta
+    var paso                  by rememberSaveable { mutableStateOf(PasoEscaneo.SELECCIONAR_PARCELA) }
+    var cultivoSeleccionadoId by rememberSaveable { mutableStateOf<String?>(null) }
+    val cultivoSeleccionado   = cultivos.find { it.id == cultivoSeleccionadoId }
 
     Scaffold(
         bottomBar = {
@@ -76,7 +95,7 @@ fun EscanearParcelaScreen(
                 modifier = Modifier.size(26.dp).clickable {
                     if (paso == PasoEscaneo.ESCANEAR) {
                         paso = PasoEscaneo.SELECCIONAR_PARCELA
-                        cultivoSeleccionado = null
+                        cultivoSeleccionadoId = null
                     } else {
                         onHomeClick()
                     }
@@ -93,23 +112,25 @@ fun EscanearParcelaScreen(
 
         HorizontalDivider(color = Color(0xFFE8ECE8), thickness = 1.dp)
 
-        when (paso) {
-            PasoEscaneo.SELECCIONAR_PARCELA -> {
+        when {
+            paso == PasoEscaneo.ESCANEAR && cultivoSeleccionado != null -> {
+                EscaneoStep(
+                    cultivo = cultivoSeleccionado,
+                    cultivosViewModel = cultivosViewModel,
+                    onVerEscaneo = onVerEscaneo,
+                    onCambiarParcela = {
+                        cultivoSeleccionadoId = null
+                        paso = PasoEscaneo.SELECCIONAR_PARCELA
+                    }
+                )
+            }
+            else -> {
                 SeleccionarParcelaStep(
                     cultivos = cultivos,
                     isLoading = isLoading,
                     onSeleccionar = { cultivo ->
-                        cultivoSeleccionado = cultivo
+                        cultivoSeleccionadoId = cultivo.id
                         paso = PasoEscaneo.ESCANEAR
-                    }
-                )
-            }
-            PasoEscaneo.ESCANEAR -> {
-                EscaneoStep(
-                    cultivo = cultivoSeleccionado!!,
-                    onCambiarParcela = {
-                        cultivoSeleccionado = null
-                        paso = PasoEscaneo.SELECCIONAR_PARCELA
                     }
                 )
             }
@@ -261,8 +282,73 @@ private fun ParcelaSeleccionCard(cultivo: Cultivo, onClick: () -> Unit) {
 @Composable
 private fun EscaneoStep(
     cultivo: Cultivo,
+    cultivosViewModel: CultivosViewModel,
+    onVerEscaneo: (cultivoId: String, escaneoId: String) -> Unit,
     onCambiarParcela: () -> Unit
 ) {
+    val context     = LocalContext.current
+    val scope       = rememberCoroutineScope()
+    val registrando by cultivosViewModel.registrandoEscaneo.collectAsState()
+
+    var rutaCamara  by rememberSaveable { mutableStateOf<String?>(null) }
+    var preparando  by remember { mutableStateOf(false) }
+    var registrado  by remember { mutableStateOf<Escaneo?>(null) }
+    var error       by remember { mutableStateOf<String?>(null) }
+    val ocupado     = registrando || preparando
+
+    fun registrar(foto: File, origen: OrigenFoto, gps: Pair<Double, Double>?) {
+        cultivosViewModel.registrarEscaneoFoto(cultivo.id, foto, origen, gps) { registrado = it }
+    }
+
+    val camaraLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.TakePicture()
+    ) { ok ->
+        val archivo = rutaCamara?.let { File(it) }
+        rutaCamara = null
+        if (ok && archivo != null && archivo.length() > 0) {
+            preparando = true
+            scope.launch {
+                // GPS del teléfono en el momento de la foto (null si no hay permiso o señal)
+                val gps = FotosEscaneo.ubicacionActual(context)
+                preparando = false
+                registrar(archivo, OrigenFoto.CAMARA, gps)
+            }
+        } else {
+            archivo?.delete()
+        }
+    }
+
+    val galeriaLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        preparando = true
+        scope.launch {
+            val archivo = FotosEscaneo.copiarDesdeGaleria(context, uri)
+            preparando = false
+            if (archivo == null) error = "No se pudo copiar la imagen elegida."
+            // Ubicación solo si la foto la trae en su EXIF; nunca la del teléfono ahora
+            else registrar(archivo, OrigenFoto.GALERIA, FotosEscaneo.gpsDeExif(archivo))
+        }
+    }
+
+    fun abrirCamara() {
+        error = null
+        val archivo = FotosEscaneo.nuevoArchivo(context)
+        rutaCamara = archivo.absolutePath
+        try {
+            camaraLauncher.launch(FotosEscaneo.uriParaCamara(context, archivo))
+        } catch (_: ActivityNotFoundException) {
+            rutaCamara = null
+            error = "No se encontró una app de cámara en el teléfono."
+        }
+    }
+
+    // Se pide la ubicación para registrar dónde se tomó la foto; si se niega, la foto se guarda sin GPS
+    val permisoUbicacion = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { abrirCamara() }
+
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
     ) {
@@ -290,37 +376,123 @@ private fun EscaneoStep(
                         fontSize = 12.sp, color = GrisMedio
                     )
                 }
-                TextButton(
-                    onClick = onCambiarParcela,
-                    colors = ButtonDefaults.textButtonColors(contentColor = VerdeEsmeralda),
-                    contentPadding = PaddingValues(horizontal = 6.dp)
-                ) {
-                    Text("Cambiar", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                if (!ocupado) {
+                    TextButton(
+                        onClick = onCambiarParcela,
+                        colors = ButtonDefaults.textButtonColors(contentColor = VerdeEsmeralda),
+                        contentPadding = PaddingValues(horizontal = 6.dp)
+                    ) {
+                        Text("Cambiar", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
                 }
             }
         }
 
+        // ── Foto ─────────────────────────────────────────────────────────────
         Box(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
                 .height(260.dp).clip(RoundedCornerShape(16.dp))
                 .background(Color(0xFF2D5A27))
         ) {
-            Image(
-                painter = painterResource(id = R.drawable.ic_cultivos),
-                contentDescription = "Campo",
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-                alpha = 0.4f
-            )
-            Column(modifier = Modifier.align(Alignment.Center).padding(horizontal = 24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(Icons.Filled.PhotoCamera, null, tint = Color.White.copy(alpha = 0.7f),
-                    modifier = Modifier.size(48.dp))
-                Spacer(Modifier.height(8.dp))
-                Text("El escaneo por foto estará disponible próximamente",
-                    color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp,
-                    textAlign = TextAlign.Center)
+            val foto = registrado
+            if (foto != null) {
+                FotoEscaneo(ruta = foto.fotoRuta, modifier = Modifier.fillMaxSize())
+            } else {
+                Image(
+                    painter = painterResource(id = R.drawable.ic_cultivos),
+                    contentDescription = "Campo",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                    alpha = 0.4f
+                )
+                Column(modifier = Modifier.align(Alignment.Center).padding(horizontal = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Filled.PhotoCamera, null, tint = Color.White.copy(alpha = 0.8f),
+                        modifier = Modifier.size(48.dp))
+                    Spacer(Modifier.height(8.dp))
+                    Text("Toma una foto de una sola hoja, de cerca y con buena luz",
+                        color = Color.White.copy(alpha = 0.9f), fontSize = 13.sp,
+                        textAlign = TextAlign.Center)
+                }
             }
+            if (ocupado) {
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)),
+                    contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(color = Color.White)
+                        Spacer(Modifier.height(8.dp))
+                        Text("Guardando foto...", color = Color.White, fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        // ── Acciones ─────────────────────────────────────────────────────────
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            InfoCircleButton(
+                label = if (registrado != null) "Tomar otra foto" else "Tomar foto",
+                painter = painterResource(R.drawable.ic_escanear),
+                enabled = !ocupado,
+                isActive = false,
+                hasAlert = false,
+                isLoading = ocupado,
+                onClick = {
+                    val tienePermiso = ContextCompat.checkSelfPermission(
+                        context, Manifest.permission.ACCESS_FINE_LOCATION
+                    ) == PackageManager.PERMISSION_GRANTED
+                    if (tienePermiso) abrirCamara()
+                    else permisoUbicacion.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                }
+            )
+            Spacer(Modifier.height(12.dp))
+            OutlinedButton(
+                onClick = {
+                    error = null
+                    galeriaLauncher.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                },
+                enabled = !ocupado,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = VerdeBosque),
+                border = androidx.compose.foundation.BorderStroke(1.5.dp, VerdeBosque)
+            ) {
+                Icon(Icons.Filled.PhotoLibrary, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Elegir de la galería", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+
+        error?.let { err ->
+            Spacer(Modifier.height(12.dp))
+            Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3F3)),
+                shape = RoundedCornerShape(12.dp)) {
+                Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.Top) {
+                    Icon(Icons.Filled.Warning, null, tint = RojoAlerta,
+                        modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(err, fontSize = 12.sp, color = RojoAlerta, modifier = Modifier.weight(1f))
+                    Icon(Icons.Filled.Close, "Cerrar", tint = GrisMedio,
+                        modifier = Modifier.size(18.dp).clickable { error = null })
+                }
+            }
+        }
+
+        // ── Resultado del registro ───────────────────────────────────────────
+        registrado?.let { esc ->
+            Spacer(Modifier.height(16.dp))
+            ResultadoRegistro(
+                escaneo = esc,
+                nombreCultivo = cultivo.nombre,
+                onVerDetalle = { onVerEscaneo(cultivo.id, esc.id) },
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
         }
 
         Spacer(Modifier.height(20.dp))
@@ -328,6 +500,65 @@ private fun EscaneoStep(
             fontSize = 11.sp, color = GrisMedio, textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 8.dp))
         Spacer(Modifier.height(16.dp))
+    }
+}
+
+@Composable
+private fun ResultadoRegistro(
+    escaneo: Escaneo,
+    nombreCultivo: String,
+    onVerDetalle: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val clase = CatalogoFrijol.porEtiqueta(escaneo.claseDetectada)
+    val analizado = escaneo.estadoGeneral == EstadoEscaneo.COMPLETADO && clase != null
+    Card(modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFF1F8E9))) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.CheckCircle, null, tint = VerdeEsmeralda,
+                    modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Foto guardada en \"$nombreCultivo\"",
+                    fontSize = 13.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.SemiBold)
+            }
+            Spacer(Modifier.height(8.dp))
+            ResultadoRow(Icons.Filled.Schedule, "Fecha", escaneo.fecha, GrisHumo)
+            ResultadoRow(
+                Icons.Filled.LocationOn, "Ubicación",
+                if (escaneo.gpsLat != null && escaneo.gpsLon != null)
+                    "%.5f, %.5f".format(escaneo.gpsLat, escaneo.gpsLon)
+                else "No disponible",
+                GrisHumo
+            )
+            ResultadoRow(
+                Icons.Filled.Analytics, "Resultado",
+                if (analizado) clase!!.nombre else "Pendiente de análisis",
+                if (analizado) VerdeBosque else Color(0xFF1565C0)
+            )
+            Spacer(Modifier.height(8.dp))
+            TextButton(
+                onClick = onVerDetalle,
+                colors = ButtonDefaults.textButtonColors(contentColor = VerdeEsmeralda),
+                contentPadding = PaddingValues(horizontal = 0.dp)
+            ) {
+                Text("Ver detalle del escaneo", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Icon(Icons.Filled.ChevronRight, null, modifier = Modifier.size(18.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ResultadoRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String, value: String, color: Color
+) {
+    Row(modifier = Modifier.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, tint = color, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(8.dp))
+        Text("$label: ", fontSize = 12.sp, color = GrisHumo, fontWeight = FontWeight.SemiBold)
+        Text(value, fontSize = 12.sp, color = color, fontWeight = FontWeight.Medium)
     }
 }
 

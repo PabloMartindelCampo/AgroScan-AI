@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <data-extraction-rules>
     <cloud-backup>
+        <!-- Las fotos de los escaneos se quedan solo en el teléfono -->
+        <exclude domain="file" path="escaneos/" />
     </cloud-backup>
 </data-extraction-rules>

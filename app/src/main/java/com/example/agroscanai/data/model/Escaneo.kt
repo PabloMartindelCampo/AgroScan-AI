@@ -9,13 +9,18 @@ data class Escaneo(
     val cultivoId: String = "",
     val fecha: String = "",                 // dd/MM/yyyy HH:mm
     val fotoRuta: String = "",              // ruta local dentro de filesDir
-    val gpsLat: Double? = null,             // null si no se pudo obtener el GPS
+    val origen: OrigenFoto = OrigenFoto.CAMARA,
+    // Cámara: GPS del teléfono al tomar la foto. Galería: GPS del EXIF de la foto.
+    // null si no se pudo obtener; nunca se usa una ubicación por defecto.
+    val gpsLat: Double? = null,
     val gpsLon: Double? = null,
     val estadoGeneral: EstadoEscaneo = EstadoEscaneo.PENDIENTE,
     val claseDetectada: String = "",        // etiqueta del modelo (ver CatalogoFrijol)
     val confianza: Float? = null,           // probabilidad que da el modelo (0–1); null sin análisis
     val modeloVersion: String = ""
 )
+
+enum class OrigenFoto { CAMARA, GALERIA }
 
 enum class EstadoEscaneo {
     PENDIENTE,      // foto guardada, pendiente de análisis

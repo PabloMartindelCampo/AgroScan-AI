@@ -1,0 +1,10 @@
+Coloca aquí el modelo de hojas de frijol cuando esté entrenado:
+
+  modelo_frijol.tflite   -> el modelo TensorFlow Lite
+  etiquetas_frijol.txt   -> una etiqueta por línea, en el mismo orden que la salida del modelo:
+                            sana
+                            mancha_angular
+                            roya
+
+Las etiquetas deben coincidir con CatalogoFrijol.kt. Mientras el modelo no exista,
+la app guarda cada foto como "Pendiente de análisis" y no muestra ningún diagnóstico.

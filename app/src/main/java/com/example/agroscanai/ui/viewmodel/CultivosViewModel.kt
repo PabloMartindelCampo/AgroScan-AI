@@ -4,11 +4,16 @@ import android.app.Application
 import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.agroscanai.data.ml.AnalizadorHojas
+import com.example.agroscanai.data.ml.crearAnalizador
+import com.example.agroscanai.data.model.CatalogoFrijol
 import com.example.agroscanai.data.model.Cultivo
 import com.example.agroscanai.data.model.Escaneo
 import com.example.agroscanai.data.model.EstadoCultivo
 import com.example.agroscanai.data.model.EstadoEscaneo
+import com.example.agroscanai.data.model.OrigenFoto
 import com.example.agroscanai.data.model.SIN_ESCANEOS
+import com.example.agroscanai.utils.NotificacionHelper
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.ktx.auth
 import com.google.firebase.firestore.DocumentSnapshot
@@ -18,12 +23,16 @@ import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
+import java.io.File
 import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 class CultivosViewModel(application: Application) : AndroidViewModel(application) {
@@ -253,6 +262,134 @@ class CultivosViewModel(application: Application) : AndroidViewModel(application
 
     // ── Escaneos por foto ────────────────────────────────────────────────────
 
+    private val analizador: AnalizadorHojas = crearAnalizador(application)
+
+    private val _escaneos = MutableStateFlow<List<Escaneo>>(emptyList())
+    val escaneos: StateFlow<List<Escaneo>> = _escaneos.asStateFlow()
+
+    private val _escaneoDetalle = MutableStateFlow<Escaneo?>(null)
+    val escaneoDetalle: StateFlow<Escaneo?> = _escaneoDetalle.asStateFlow()
+
+    private val _registrandoEscaneo = MutableStateFlow(false)
+    val registrandoEscaneo: StateFlow<Boolean> = _registrandoEscaneo.asStateFlow()
+
+    /**
+     * Registra la foto de una hoja: la analiza si hay modelo y guarda en Firestore
+     * solo los metadatos (ruta local, fecha, GPS y resultado).
+     */
+    fun registrarEscaneoFoto(
+        cultivoId: String,
+        foto: File,
+        origen: OrigenFoto,
+        gps: Pair<Double, Double>?,
+        onRegistrado: (Escaneo) -> Unit
+    ) {
+        if (userId().isEmpty() || cultivoId.isEmpty()) return
+        viewModelScope.launch {
+            _registrandoEscaneo.value = true
+            val fecha = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date())
+
+            val resultado = withContext(Dispatchers.Default) {
+                runCatching { analizador.analizar(foto) }.getOrNull()
+            }
+            val clase = resultado?.let { CatalogoFrijol.porEtiqueta(it.etiqueta) }
+            // Sin resultado del modelo (o con una etiqueta desconocida) queda pendiente
+            val valido = resultado?.takeIf { clase != null }
+
+            val escaneo = Escaneo(
+                cultivoId      = cultivoId,
+                fecha          = fecha,
+                fotoRuta       = foto.absolutePath,
+                origen         = origen,
+                gpsLat         = gps?.first,
+                gpsLon         = gps?.second,
+                estadoGeneral  = if (valido != null) EstadoEscaneo.COMPLETADO else EstadoEscaneo.PENDIENTE,
+                claseDetectada = clase?.etiquetaModelo ?: "",
+                confianza      = valido?.probabilidad,
+                modeloVersion  = valido?.modeloVersion ?: ""
+            )
+            val (nuevoEstado, diagnostico) = when {
+                clase == null -> EstadoCultivo.PENDIENTE_ANALISIS to ""
+                clase.etiquetaModelo == CatalogoFrijol.ETIQUETA_SANA -> EstadoCultivo.SANA to ""
+                else -> EstadoCultivo.ENFERMEDAD to clase.nombre
+            }
+
+            // El id se genera localmente para no depender de la red
+            val ref = cultivosRef().document(cultivoId).collection("escaneos").document()
+            val guardado = escaneo.copy(id = ref.id)
+
+            val actualizada = _cultivos.value.map { c ->
+                if (c.id == cultivoId) c.copy(
+                    estado        = nuevoEstado.name,
+                    diagnostico   = diagnostico,
+                    ultimoEscaneo = fecha
+                ) else c
+            }
+            _cultivos.value = actualizada
+            escribirLocal(actualizada)
+            _ultimoEscaneo.value = guardado
+            _escaneoDetalle.value = guardado
+            _escaneos.value = listOf(guardado) + _escaneos.value.filter { it.cultivoId == cultivoId }
+
+            NotificacionHelper.notificarEscaneoCompleto(
+                context       = getApplication(),
+                nombreCultivo = actualizada.find { it.id == cultivoId }?.nombre ?: "Cultivo",
+                estado        = nuevoEstado,
+                diagnostico   = diagnostico
+            )
+
+            _registrandoEscaneo.value = false
+            onRegistrado(guardado)
+
+            // Firestore sincroniza cuando haya red; la escritura queda en su caché local
+            ref.set(hashMapOf(
+                "fecha"          to guardado.fecha,
+                "fotoRuta"       to guardado.fotoRuta,
+                "origen"         to guardado.origen.name,
+                "gpsLat"         to guardado.gpsLat,
+                "gpsLon"         to guardado.gpsLon,
+                "estadoGeneral"  to guardado.estadoGeneral.name,
+                "claseDetectada" to guardado.claseDetectada,
+                "confianza"      to guardado.confianza,
+                "modeloVersion"  to guardado.modeloVersion
+            )).addOnFailureListener { _error.value = "No se pudo sincronizar el escaneo." }
+            cultivosRef().document(cultivoId).update(mapOf(
+                "estado"        to nuevoEstado.name,
+                "diagnostico"   to diagnostico,
+                "ultimoEscaneo" to fecha
+            ))
+        }
+    }
+
+    /** Historial de escaneos por foto de una parcela, del más reciente al más antiguo. */
+    fun cargarEscaneos(cultivoId: String) {
+        if (userId().isEmpty() || cultivoId.isEmpty()) return
+        viewModelScope.launch {
+            _escaneos.value = emptyList()
+            try {
+                val sdf = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
+                val snapshot = cultivosRef().document(cultivoId)
+                    .collection("escaneos").get().await()
+                _escaneos.value = snapshot.documents
+                    .mapNotNull { docAEscaneo(cultivoId, it) }
+                    .sortedByDescending { runCatching { sdf.parse(it.fecha) }.getOrNull() }
+            } catch (_: Exception) { }
+        }
+    }
+
+    fun cargarEscaneo(cultivoId: String, escaneoId: String) {
+        if (userId().isEmpty() || cultivoId.isEmpty() || escaneoId.isEmpty()) return
+        if (_escaneoDetalle.value?.id == escaneoId) return
+        viewModelScope.launch {
+            _escaneoDetalle.value = null
+            try {
+                val doc = cultivosRef().document(cultivoId)
+                    .collection("escaneos").document(escaneoId).get().await()
+                _escaneoDetalle.value = docAEscaneo(cultivoId, doc)
+            } catch (_: Exception) { }
+        }
+    }
+
     /** Convierte un documento de `escaneos`. Los escaneos sin foto (simulados) se ignoran. */
     private fun docAEscaneo(cultivoId: String, doc: DocumentSnapshot): Escaneo? {
         val fotoRuta = doc.getString("fotoRuta") ?: return null
@@ -262,6 +399,9 @@ class CultivosViewModel(application: Application) : AndroidViewModel(application
             cultivoId      = cultivoId,
             fecha          = doc.getString("fecha") ?: "",
             fotoRuta       = fotoRuta,
+            origen         = runCatching {
+                OrigenFoto.valueOf(doc.getString("origen") ?: "")
+            }.getOrDefault(OrigenFoto.CAMARA),
             gpsLat         = doc.getDouble("gpsLat"),
             gpsLon         = doc.getDouble("gpsLon"),
             estadoGeneral  = runCatching {
