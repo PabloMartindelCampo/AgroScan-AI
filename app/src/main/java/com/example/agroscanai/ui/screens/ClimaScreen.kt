@@ -106,7 +106,8 @@ fun ClimaScreen(
                                     val tienePermiso = ContextCompat.checkSelfPermission(
                                         context, Manifest.permission.ACCESS_FINE_LOCATION
                                     ) == PackageManager.PERMISSION_GRANTED
-                                    viewModel.cargarClima(tienePermiso)
+                                    if (tienePermiso) viewModel.cargarClima(true)
+                                    else permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = VerdeBosque)
                             ) { Text("Reintentar") }

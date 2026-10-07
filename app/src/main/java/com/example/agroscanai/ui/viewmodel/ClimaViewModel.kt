@@ -28,10 +28,6 @@ sealed class ClimaUiState {
     data class Error(val mensaje: String) : ClimaUiState()
 }
 
-private const val LAT_DEFAULT = -34.6
-private const val LON_DEFAULT = -58.38
-private const val REGION_DEFAULT = "Buenos Aires, Argentina"
-
 class ClimaViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _uiState = MutableStateFlow<ClimaUiState>(ClimaUiState.Cargando)
@@ -49,11 +45,17 @@ class ClimaViewModel(app: Application) : AndroidViewModel(app) {
     fun cargarClima(tienePermiso: Boolean) {
         viewModelScope.launch {
             _uiState.value = ClimaUiState.Cargando
-            val (lat, lon, region) = if (tienePermiso) {
-                try { obtenerUbicacion() }
-                catch (_: Exception) { Triple(LAT_DEFAULT, LON_DEFAULT, REGION_DEFAULT) }
-            } else {
-                Triple(LAT_DEFAULT, LON_DEFAULT, REGION_DEFAULT)
+            // Sin ubicación real no se muestra el clima de otro lugar
+            if (!tienePermiso) {
+                _uiState.value = ClimaUiState.Error(
+                    "Permite el acceso a tu ubicación para ver el clima de tu zona.")
+                return@launch
+            }
+            val (lat, lon, region) = try { obtenerUbicacion() }
+            catch (_: Exception) {
+                _uiState.value = ClimaUiState.Error(
+                    "No se pudo obtener tu ubicación. Activa el GPS e intenta de nuevo.")
+                return@launch
             }
             fetchClima(lat, lon, region)
         }

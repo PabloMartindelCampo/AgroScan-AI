@@ -37,7 +37,6 @@ data class HomeMenuItem(
 @Composable
 fun HomeScreen(
     nombreUsuario: String = "",
-    notificacionesCount: Int = 4,
     onMenuItemClick: (route: String) -> Unit = {},
     onNotificacionesClick: () -> Unit = {},
     onPerfilClick: () -> Unit = {}
