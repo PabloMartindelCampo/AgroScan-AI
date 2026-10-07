@@ -9,7 +9,6 @@ import com.example.agroscanai.ui.screens.*
 import com.example.agroscanai.ui.viewmodel.AuthViewModel
 import com.example.agroscanai.ui.viewmodel.CalendarioViewModel
 import com.example.agroscanai.ui.viewmodel.CultivosViewModel
-import com.example.agroscanai.ui.viewmodel.DroneViewModel
 import com.example.agroscanai.ui.viewmodel.PerfilViewModel
 import com.google.firebase.auth.ktx.auth
 import com.google.firebase.ktx.Firebase
@@ -53,7 +52,6 @@ object Routes {
 @Composable
 fun NavGraph(navController: NavHostController) {
     val authViewModel: AuthViewModel           = viewModel()
-    val droneViewModel: DroneViewModel         = viewModel()
     val cultivosViewModel: CultivosViewModel   = viewModel()
     val perfilViewModel: PerfilViewModel       = viewModel()
     val calendarioViewModel: CalendarioViewModel = viewModel()
@@ -198,7 +196,6 @@ fun NavGraph(navController: NavHostController) {
                 onHomeClick           = { navController.navigate(Routes.HOME) },
                 onNotificacionesClick = { goNotificaciones() },
                 onPerfilClick         = { navController.navigate(Routes.PERFIL) },
-                droneViewModel        = droneViewModel,
                 cultivosViewModel     = cultivosViewModel
             )
         }

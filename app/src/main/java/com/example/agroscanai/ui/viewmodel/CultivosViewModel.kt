@@ -245,114 +245,20 @@ class CultivosViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun guardarResultadoEscaneo(cultivoId: String, resultado: ResultadoEscaneo) {
-        val uid = userId()
-        if (uid.isEmpty() || cultivoId.isEmpty()) return
+    /** Guarda la ubicación "lat,lon" de la parcela (tomada del GPS del teléfono). */
+    fun actualizarUbicacion(cultivoId: String, lat: Double, lon: Double) {
+        if (userId().isEmpty() || cultivoId.isEmpty()) return
+        val ubicacion = "%.6f,%.6f".format(Locale.US, lat, lon)
+        val actualizada = _cultivos.value.map { c ->
+            if (c.id == cultivoId) c.copy(ubicacion = ubicacion) else c
+        }
+        _cultivos.value = actualizada
+        escribirLocal(actualizada)
         viewModelScope.launch {
-            val fecha = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date())
-
-            val nuevoEstado = when {
-                resultado.plagasDetectadas || resultado.humedadSuelo < 15f ->
-                    EstadoCultivo.CRITICO.name
-                resultado.humedadSuelo < 20f || resultado.nivelNitrogenio < 40f ->
-                    EstadoCultivo.ALERTA.name
-                else -> EstadoCultivo.SALUDABLE.name
-            }
-
-            val indiceSaludLocal = run {
-                var s = 100f
-                if (resultado.plagasDetectadas) s -= 40f
-                s -= when {
-                    resultado.humedadSuelo < 10f -> 35f
-                    resultado.humedadSuelo < 15f -> 25f
-                    resultado.humedadSuelo < 20f -> 15f
-                    resultado.humedadSuelo < 25f ->  5f
-                    resultado.humedadSuelo > 70f -> 10f
-                    else -> 0f
-                }
-                s -= when {
-                    resultado.nivelNitrogenio < 30f -> 20f
-                    resultado.nivelNitrogenio < 45f -> 12f
-                    resultado.nivelNitrogenio < 60f ->  5f
-                    else -> 0f
-                }
-                s -= when {
-                    resultado.nivelFosforo < 40f -> 15f
-                    resultado.nivelFosforo < 50f ->  8f
-                    resultado.nivelFosforo < 60f ->  3f
-                    else -> 0f
-                }
-                s -= when {
-                    resultado.nivelPotasio < 50f -> 10f
-                    resultado.nivelPotasio < 60f ->  5f
-                    else -> 0f
-                }
-                s.coerceIn(5f, 100f)
-            }
-
-            // 1. Actualizar memoria con todos los campos del escaneo
-            val actualizada = _cultivos.value.map { c ->
-                if (c.id == cultivoId) c.copy(
-                    estado           = nuevoEstado,
-                    ultimoEscaneo    = fecha,
-                    humedadPromedio  = resultado.humedadSuelo,
-                    nitrogenio       = resultado.nivelNitrogenio,
-                    fosforo          = resultado.nivelFosforo,
-                    potasio          = resultado.nivelPotasio,
-                    plagasDetectadas = resultado.plagasDetectadas,
-                    indiceSalud      = indiceSaludLocal
-                ) else c
-            }
-            _cultivos.value = actualizada
-
-            // 2. Guardar en disco INMEDIATAMENTE (sincrónico, no depende de red)
-            escribirLocal(actualizada)
-
-            // 3. Notificación local al usuario
-            val nombreCultivo = actualizada.find { it.id == cultivoId }?.nombre ?: "Cultivo"
-            NotificacionHelper.notificarEscaneoCompleto(
-                context          = getApplication(),
-                nombreCultivo    = nombreCultivo,
-                estado           = nuevoEstado,
-                plagasDetectadas = resultado.plagasDetectadas
-            )
-
-            // 4. Intentar guardar en Firestore (en background, sin bloquear)
             try {
-                cultivosRef().document(cultivoId).collection("escaneos").add(
-                    hashMapOf(
-                        "fecha"                   to fecha,
-                        "confianzaIA"             to resultado.confianzaIA,
-                        "gpsLat"                  to resultado.gpsLat,
-                        "gpsLon"                  to resultado.gpsLon,
-                        "humedadSuelo"            to resultado.humedadSuelo,
-                        "estresSuelo"             to resultado.estresSuelo,
-                        "descripcionSuelo"        to resultado.descripcionSuelo,
-                        "plagasDetectadas"        to resultado.plagasDetectadas,
-                        "descripcionPlagas"       to resultado.descripcionPlagas,
-                        "nivelNitrogenio"         to resultado.nivelNitrogenio,
-                        "nivelFosforo"            to resultado.nivelFosforo,
-                        "nivelPotasio"            to resultado.nivelPotasio,
-                        "descripcionNutrientes"   to resultado.descripcionNutrientes,
-                        "recomendacionNutrientes" to resultado.recomendacionNutrientes
-                    )
-                ).await()
-
-                cultivosRef().document(cultivoId).update(
-                    mapOf(
-                        "estado"           to nuevoEstado,
-                        "ultimoEscaneo"    to fecha,
-                        "humedadPromedio"  to resultado.humedadSuelo,
-                        "nitrogenio"       to resultado.nivelNitrogenio,
-                        "fosforo"          to resultado.nivelFosforo,
-                        "potasio"          to resultado.nivelPotasio,
-                        "plagasDetectadas" to resultado.plagasDetectadas,
-                        "indiceSalud"      to indiceSaludLocal
-                    )
-                ).await()
-
+                cultivosRef().document(cultivoId).update("ubicacion", ubicacion).await()
             } catch (_: Exception) {
-                // Firestore falló pero el dato ya está guardado localmente
+                _error.value = "No se pudo guardar la ubicación. Intenta de nuevo."
             }
         }
     }

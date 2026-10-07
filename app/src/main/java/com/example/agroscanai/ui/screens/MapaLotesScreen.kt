@@ -1,6 +1,10 @@
 package com.example.agroscanai.ui.screens
 
-import android.graphics.Paint
+import android.Manifest
+import android.annotation.SuppressLint
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -29,6 +33,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -45,11 +50,8 @@ import org.osmdroid.util.GeoPoint
 import org.osmdroid.util.MapTileIndex
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
-import org.osmdroid.views.overlay.Overlay
-import kotlin.math.PI
-import kotlin.math.abs
-import kotlin.math.cos
-import kotlin.math.sqrt
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Fuente de tiles de imágenes satelitales ESRI (gratuita, sin API key)
@@ -128,7 +130,15 @@ fun MapaLotesScreen(
                     cultivos = cultivos, isLoading = isLoading,
                     onSeleccionar = { cultivoSeleccionado = it; paso = PasoMapa.VER_MAPA }
                 )
-                PasoMapa.VER_MAPA -> MapaCalorStep(cultivo = cultivoSeleccionado!!)
+                PasoMapa.VER_MAPA -> {
+                    val actual = cultivos.find { it.id == cultivoSeleccionado?.id } ?: cultivoSeleccionado!!
+                    MapaLoteStep(
+                        cultivo = actual,
+                        onUbicacionObtenida = { lat, lon ->
+                            cultivosViewModel.actualizarUbicacion(actual.id, lat, lon)
+                        }
+                    )
+                }
             }
         }
     }
@@ -160,7 +170,7 @@ private fun SeleccionarLoteStep(
                 Text("Sin parcelas registradas",
                     fontSize = 16.sp, color = GrisMedio, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(8.dp))
-                Text("Agrega un cultivo en \"Mis Cultivos\" para ver su mapa de calor.",
+                Text("Agrega un cultivo en \"Mis Cultivos\" para ver su mapa.",
                     fontSize = 13.sp, color = GrisMedio.copy(alpha = 0.7f),
                     textAlign = TextAlign.Center, lineHeight = 20.sp)
             }
@@ -220,7 +230,8 @@ private fun LoteCard(cultivo: Cultivo, onClick: () -> Unit) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(estadoColor))
                     Spacer(Modifier.width(5.dp))
-                    Text("Ver Mapa de Calor", fontSize = 12.sp, color = GrisMedio)
+                    Text(if (cultivo.ubicacion.isNotBlank()) "Ver mapa" else "Sin ubicación registrada",
+                        fontSize = 12.sp, color = GrisMedio)
                 }
             }
             Spacer(Modifier.width(10.dp))
@@ -238,30 +249,25 @@ private fun LoteCard(cultivo: Cultivo, onClick: () -> Unit) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PASO 2 – Mapa de calor con OSMDroid
+// PASO 2 – Mapa del lote con OSMDroid
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Lee la ubicación guardada como "lat,lon". Devuelve null si no hay una válida. */
+private fun parsearUbicacion(ubicacion: String): Pair<Double, Double>? {
+    val parts = ubicacion.split(",").mapNotNull { it.trim().toDoubleOrNull() }
+    if (parts.size != 2) return null
+    val (lat, lon) = parts
+    if (lat !in -90.0..90.0 || lon !in -180.0..180.0) return null
+    return lat to lon
+}
+
 @Composable
-private fun MapaCalorStep(cultivo: Cultivo) {
+private fun MapaLoteStep(
+    cultivo: Cultivo,
+    onUbicacionObtenida: (Double, Double) -> Unit
+) {
     var panelActivo by remember { mutableStateOf<String?>(null) }
-
-    val tienePlagas = cultivo.plagasDetectadas
-    val tieneEstres = cultivo.humedadPromedio in 0.01f..19.99f
-    val confianzaIA = remember(cultivo.ultimoEscaneo) {
-        if (cultivo.ultimoEscaneo.isNotBlank() && cultivo.ultimoEscaneo != "Sin escaneos aún")
-            (90..100).random() else 0
-    }
-
-    // Coordenadas almacenadas como "lat,lon"
-    val (lat, lon) = remember(cultivo.ubicacion) {
-        val parts = cultivo.ubicacion.split(",").mapNotNull { it.trim().toDoubleOrNull() }
-        if (parts.size == 2) parts[0] to parts[1] else 19.4326 to -99.1332
-    }
-
-    // Radio del lote en metros a partir de hectáreas
-    val radioMetros = remember(cultivo.hectareas) {
-        (sqrt(cultivo.hectareas * 10_000.0 / PI) * 2.2).coerceAtLeast(60.0)
-    }
+    val coordenadas = remember(cultivo.ubicacion) { parsearUbicacion(cultivo.ubicacion) }
 
     Column(modifier = Modifier.fillMaxSize()) {
 
@@ -314,7 +320,7 @@ private fun MapaCalorStep(cultivo: Cultivo) {
             }
         }
 
-        // ── Mapa OSMDroid ───────────────────────────────────────────────────
+        // ── Mapa OSMDroid (solo si hay ubicación real) ──────────────────────
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -322,51 +328,29 @@ private fun MapaCalorStep(cultivo: Cultivo) {
                 .padding(horizontal = 16.dp)
                 .clip(RoundedCornerShape(16.dp))
         ) {
-            OsmMapaCalor(
-                lat = lat, lon = lon,
-                radioMetros = radioMetros,
-                cultivo = cultivo,
-                modifier = Modifier.fillMaxSize()
-            )
+            if (coordenadas == null) {
+                SinUbicacion(onUbicacionObtenida = onUbicacionObtenida)
+            } else {
+                val (lat, lon) = coordenadas
+                OsmMapaLote(
+                    lat = lat, lon = lon,
+                    cultivo = cultivo,
+                    modifier = Modifier.fillMaxSize()
+                )
 
-            // Coordenadas GPS
-            if (panelActivo == null) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(start = 10.dp, bottom = 10.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Color.Black.copy(alpha = 0.55f))
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Text("GPS: ${"%.5f".format(lat)}, ${"%.5f".format(lon)}",
-                        color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Medium)
-                }
-
-                // Confianza IA
-                if (confianzaIA > 0) {
+                // Coordenadas GPS
+                if (panelActivo == null) {
                     Box(
                         modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(end = 10.dp, bottom = 10.dp)
+                            .align(Alignment.BottomStart)
+                            .padding(start = 10.dp, bottom = 10.dp)
                             .clip(RoundedCornerShape(6.dp))
-                            .background(VerdeEsmeralda.copy(alpha = 0.85f))
+                            .background(Color.Black.copy(alpha = 0.55f))
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
-                        Text("IA: $confianzaIA%", color = Color.White,
-                            fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text("GPS: ${"%.5f".format(lat)}, ${"%.5f".format(lon)}",
+                            color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Medium)
                     }
-                }
-
-                // Alertas superiores
-                Row(
-                    modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    if (tienePlagas) MarcadorChip("⚠ Plaga Detectada", Color(0xFFD32F2F))
-                    if (tieneEstres) MarcadorChip("⚠ Estrés Hídrico", Color(0xFFFFA000))
-                    if (!tienePlagas && !tieneEstres && confianzaIA > 0)
-                        MarcadorChip("✓ Cultivo Saludable", Color(0xFF2E7D32))
                 }
             }
 
@@ -378,31 +362,19 @@ private fun MapaCalorStep(cultivo: Cultivo) {
                         .clickable { panelActivo = null },
                     contentAlignment = Alignment.Center
                 ) {
-                    MapaInfoPanel(
-                        panel = panelActivo!!, cultivo = cultivo,
-                        onClose = { panelActivo = null }
-                    )
+                    MapaInfoPanel(cultivo = cultivo, onClose = { panelActivo = null })
                 }
             }
         }
-
-        // ── Leyenda NDVI ────────────────────────────────────────────────────
-        HeatMapLeyenda(estado = cultivo.estadoEnum())
 
         // ── Botones ─────────────────────────────────────────────────────────
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
-            MapaBotonCircular("Plagas", painterResource(R.drawable.ic_plagas),
-                isActive = panelActivo == "plagas", hasAlert = tienePlagas,
-                onClick = { panelActivo = if (panelActivo == "plagas") null else "plagas" })
-            MapaBotonCircular("Nutrientes", painterResource(R.drawable.ic_nutrientes),
-                isActive = panelActivo == "nutrientes", hasAlert = cultivo.nitrogenio in 0.01f..39.99f,
-                onClick = { panelActivo = if (panelActivo == "nutrientes") null else "nutrientes" })
-            MapaBotonCircular("Satélite", painterResource(R.drawable.ic_satelite),
-                isActive = panelActivo == "satelite", hasAlert = false,
-                onClick = { panelActivo = if (panelActivo == "satelite") null else "satelite" })
+            MapaBotonCircular("Información", painterResource(R.drawable.ic_satelite),
+                isActive = panelActivo == "info", hasAlert = false,
+                onClick = { panelActivo = if (panelActivo == "info") null else "info" })
         }
 
         Text("AgroScan AI es una marca registrada. Todos los derechos reservados.",
@@ -413,14 +385,91 @@ private fun MapaCalorStep(cultivo: Cultivo) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Composable: MapView de OSMDroid con mapa de calor
+// Parcela sin ubicación: ofrecer fijarla con el GPS del teléfono
+// ─────────────────────────────────────────────────────────────────────────────
+
+@SuppressLint("MissingPermission")
+@Composable
+private fun SinUbicacion(onUbicacionObtenida: (Double, Double) -> Unit) {
+    val context = LocalContext.current
+    var buscando by remember { mutableStateOf(false) }
+    var mensaje  by remember { mutableStateOf<String?>(null) }
+
+    fun obtenerUbicacion() {
+        buscando = true
+        mensaje = null
+        LocationServices.getFusedLocationProviderClient(context)
+            .getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+            .addOnSuccessListener { loc ->
+                buscando = false
+                if (loc != null) onUbicacionObtenida(loc.latitude, loc.longitude)
+                else mensaje = "No se pudo obtener la ubicación. Activa el GPS e intenta de nuevo."
+            }
+            .addOnFailureListener {
+                buscando = false
+                mensaje = "No se pudo obtener la ubicación. Activa el GPS e intenta de nuevo."
+            }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) obtenerUbicacion()
+        else mensaje = "Se necesita permiso de ubicación para fijar la parcela en el mapa."
+    }
+
+    Column(
+        modifier = Modifier.fillMaxSize().background(Color.White).padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(Icons.Filled.LocationOff, null,
+            tint = VerdeEsmeralda.copy(alpha = 0.5f), modifier = Modifier.size(64.dp))
+        Spacer(Modifier.height(12.dp))
+        Text("Esta parcela no tiene ubicación registrada",
+            fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = GrisHumo,
+            textAlign = TextAlign.Center)
+        Spacer(Modifier.height(6.dp))
+        Text("Párate dentro de la parcela y usa tu GPS para fijar su ubicación.",
+            fontSize = 13.sp, color = GrisMedio, textAlign = TextAlign.Center, lineHeight = 19.sp)
+        Spacer(Modifier.height(16.dp))
+        Button(
+            onClick = {
+                val tienePermiso = ContextCompat.checkSelfPermission(
+                    context, Manifest.permission.ACCESS_FINE_LOCATION
+                ) == PackageManager.PERMISSION_GRANTED
+                if (tienePermiso) obtenerUbicacion()
+                else permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+            },
+            enabled = !buscando,
+            colors = ButtonDefaults.buttonColors(containerColor = VerdeBosque)
+        ) {
+            if (buscando) {
+                CircularProgressIndicator(color = Color.White,
+                    modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.width(8.dp))
+                Text("Obteniendo ubicación...")
+            } else {
+                Icon(Icons.Filled.MyLocation, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Fijar ubicación con mi GPS")
+            }
+        }
+        mensaje?.let {
+            Spacer(Modifier.height(10.dp))
+            Text(it, fontSize = 12.sp, color = RojoAlerta, textAlign = TextAlign.Center)
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Composable: MapView de OSMDroid con el marcador del lote
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun OsmMapaCalor(
+private fun OsmMapaLote(
     lat: Double,
     lon: Double,
-    radioMetros: Double,
     cultivo: Cultivo,
     modifier: Modifier = Modifier
 ) {
@@ -444,15 +493,6 @@ private fun OsmMapaCalor(
                 setZoom(17.0)
                 setCenter(centro)
             }
-
-            // Overlay: mapa de calor NDVI simulado
-            overlays.add(
-                MapaCalorOverlay(
-                    centro      = centro,
-                    radioMetros = radioMetros,
-                    cultivo     = cultivo
-                )
-            )
 
             // Marcador del lote
             val marker = Marker(this).apply {
@@ -482,199 +522,6 @@ private fun OsmMapaCalor(
     }
 
     AndroidView(factory = { mapView }, modifier = modifier)
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Overlay: círculos de calor NDVI sobre el mapa nativo
-// ─────────────────────────────────────────────────────────────────────────────
-
-private class MapaCalorOverlay(
-    private val centro: GeoPoint,
-    private val radioMetros: Double,
-    private val cultivo: Cultivo
-) : Overlay() {
-
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-
-    override fun draw(
-        canvas: android.graphics.Canvas,
-        mapView: MapView,
-        shadow: Boolean
-    ) {
-        if (shadow) return
-
-        val proj     = mapView.projection
-        val centroPx = proj.toPixels(centro, null)
-        val cx       = centroPx.x.toFloat()
-        val cy       = centroPx.y.toFloat()
-
-        // Radio en píxeles calculado a partir de metros
-        val bordeGeo = GeoPoint(centro.latitude + radioMetros / 111_000.0, centro.longitude)
-        val bordePx  = proj.toPixels(bordeGeo, null)
-        val rPx      = abs(bordePx.y - centroPx.y).toFloat().coerceAtLeast(12f)
-
-        val estado     = cultivo.estadoEnum()
-        val sinEscaneo = cultivo.ultimoEscaneo.isBlank() ||
-                cultivo.ultimoEscaneo == "Sin escaneos aún"
-
-        // ── Capas concéntricas (de exterior a interior) ───────────────────
-        when {
-            sinEscaneo -> {
-                circulo(canvas, cx, cy, rPx * 1.5f, 117, 117, 117, 12)
-                circulo(canvas, cx, cy, rPx * 1.0f, 158, 158, 158, 45)
-                circulo(canvas, cx, cy, rPx * 0.60f, 189, 189, 189, 75)
-                circulo(canvas, cx, cy, rPx * 0.30f, 117, 117, 117, 100)
-            }
-            estado == EstadoCultivo.CRITICO -> {
-                circulo(canvas, cx, cy, rPx * 1.7f, 255, 160,   0,  12) // amarillo exterior
-                circulo(canvas, cx, cy, rPx * 1.1f, 229,  57,  53,  50) // rojo exterior
-                circulo(canvas, cx, cy, rPx * 0.68f, 229,  57,  53,  95) // rojo medio
-                circulo(canvas, cx, cy, rPx * 0.36f, 183,  28,  28, 160) // rojo oscuro núcleo
-            }
-            estado == EstadoCultivo.ALERTA -> {
-                circulo(canvas, cx, cy, rPx * 1.7f, 255, 213,  79,  12) // amarillo claro
-                circulo(canvas, cx, cy, rPx * 1.1f, 255, 160,   0,  50) // naranja exterior
-                circulo(canvas, cx, cy, rPx * 0.68f, 255, 160,   0,  95) // naranja medio
-                circulo(canvas, cx, cy, rPx * 0.36f, 230,  81,   0, 160) // naranja oscuro núcleo
-            }
-            else -> { // SALUDABLE
-                circulo(canvas, cx, cy, rPx * 1.7f, 129, 199, 132,  12) // verde claro exterior
-                circulo(canvas, cx, cy, rPx * 1.1f, 129, 199, 132,  50) // verde exterior
-                circulo(canvas, cx, cy, rPx * 0.68f,  56, 142,  60,  95) // verde medio
-                circulo(canvas, cx, cy, rPx * 0.36f,  27,  94,  32, 160) // verde oscuro núcleo
-            }
-        }
-
-        // ── Borde del lote ────────────────────────────────────────────────
-        val (br, bg, bb, ba) = when (estado) {
-            EstadoCultivo.CRITICO   -> Cuadrupla(229,  57,  53, 110)
-            EstadoCultivo.ALERTA    -> Cuadrupla(255, 160,   0, 110)
-            EstadoCultivo.SALUDABLE -> Cuadrupla( 56, 142,  60, 110)
-            else                    -> Cuadrupla(158, 158, 158,  80)
-        }
-        paint.color       = android.graphics.Color.argb(ba, br, bg, bb)
-        paint.style       = Paint.Style.STROKE
-        paint.strokeWidth = 3f
-        canvas.drawCircle(cx, cy, rPx * 1.1f, paint)
-
-        // ── Variaciones del campo (aspecto NDVI realista) ─────────────────
-        if (!sinEscaneo) {
-            val cosLat   = cos(centro.latitude * PI / 180.0)
-            val mPorPx   = rPx / radioMetros.toFloat()
-            val offsetPx = (radioMetros * 0.78 * mPorPx).toFloat()
-
-            listOf(
-                Triple(-1f, -1f, 0),
-                Triple(-1f,  1f, 1),
-                Triple( 1f, -1f, 2),
-                Triple( 1f,  1f, 3)
-            ).forEach { (dy, dx, idx) ->
-                val vx = cx + dx * offsetPx * 0.75f
-                val vy = cy + dy * offsetPx * 0.75f
-                val (vr, vg, vb) = when {
-                    estado == EstadoCultivo.CRITICO && idx % 2 == 0 -> Triple(229, 57, 53)
-                    estado == EstadoCultivo.ALERTA  && idx < 2       -> Triple(102, 187, 106)
-                    estado == EstadoCultivo.SALUDABLE                -> Triple( 46, 125,  50)
-                    else -> Triple(255, 160, 0)
-                }
-                circuloEn(canvas, vx, vy, rPx * 0.40f, vr, vg, vb, 60)
-            }
-
-            // Indicador de zona húmeda
-            if (cultivo.humedadPromedio > 0f) {
-                val (hr, hg, hb) = when {
-                    cultivo.humedadPromedio < 15f -> Triple(255, 143,   0)
-                    cultivo.humedadPromedio < 25f -> Triple( 79, 195, 247)
-                    else                          -> Triple(  2, 136, 209)
-                }
-                val offsetPxH = (radioMetros * 0.35 * mPorPx).toFloat()
-                circuloEn(canvas, cx - offsetPxH, cy - offsetPxH, rPx * 0.27f, hr, hg, hb, 52)
-            }
-        }
-    }
-
-    private fun circulo(
-        c: android.graphics.Canvas,
-        cx: Float, cy: Float, r: Float,
-        red: Int, green: Int, blue: Int, alpha: Int
-    ) {
-        paint.color = android.graphics.Color.argb(alpha, red, green, blue)
-        paint.style = Paint.Style.FILL
-        c.drawCircle(cx, cy, r, paint)
-    }
-
-    private fun circuloEn(
-        c: android.graphics.Canvas,
-        x: Float, y: Float, r: Float,
-        red: Int, green: Int, blue: Int, alpha: Int
-    ) {
-        paint.color = android.graphics.Color.argb(alpha, red, green, blue)
-        paint.style = Paint.Style.FILL
-        c.drawCircle(x, y, r, paint)
-    }
-
-    private data class Cuadrupla(val a: Int, val b: Int, val cc: Int, val d: Int)
-    private operator fun Cuadrupla.component1() = a
-    private operator fun Cuadrupla.component2() = b
-    private operator fun Cuadrupla.component3() = cc
-    private operator fun Cuadrupla.component4() = d
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Leyenda de colores del mapa de calor
-// ─────────────────────────────────────────────────────────────────────────────
-
-@Composable
-private fun HeatMapLeyenda(estado: EstadoCultivo) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 5.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(Color.White)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text("NDVI:", fontSize = 10.sp, color = GrisMedio, fontWeight = FontWeight.Bold)
-        listOf(
-            Triple(Color(0xFF1B5E20), "Saludable", estado == EstadoCultivo.SALUDABLE),
-            Triple(Color(0xFFFFA000), "Estrés",    estado == EstadoCultivo.ALERTA),
-            Triple(Color(0xFFD32F2F), "Crítico",   estado == EstadoCultivo.CRITICO),
-            Triple(Color(0xFF0288D1), "Húmedo",    false)
-        ).forEach { (color, label, activo) ->
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .then(if (activo)
-                        Modifier.border(1.dp, color, RoundedCornerShape(4.dp))
-                            .background(color.copy(alpha = 0.08f))
-                    else Modifier)
-                    .padding(horizontal = 4.dp, vertical = 2.dp)
-            ) {
-                Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(color))
-                Spacer(Modifier.width(3.dp))
-                Text(label, fontSize = 9.sp, color = if (activo) color else GrisMedio)
-            }
-        }
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Chip de alerta flotante
-// ─────────────────────────────────────────────────────────────────────────────
-
-@Composable
-private fun MarcadorChip(texto: String, color: Color) {
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(color.copy(alpha = 0.90f))
-            .padding(horizontal = 8.dp, vertical = 4.dp)
-    ) {
-        Text(texto, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
-    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -719,7 +566,7 @@ private fun MapaBotonCircular(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun MapaInfoPanel(panel: String, cultivo: Cultivo, onClose: () -> Unit) {
+private fun MapaInfoPanel(cultivo: Cultivo, onClose: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(0.88f).clickable(enabled = false) {},
         shape = RoundedCornerShape(16.dp),
@@ -731,99 +578,20 @@ private fun MapaInfoPanel(panel: String, cultivo: Cultivo, onClose: () -> Unit) 
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    when (panel) {
-                        "plagas"     -> "Detección de Plagas"
-                        "nutrientes" -> "Niveles de Nutrientes"
-                        else         -> "Vista Satélite"
-                    },
-                    fontSize = 16.sp, fontWeight = FontWeight.Bold, color = VerdeBosque
-                )
+                Text("Información de la parcela",
+                    fontSize = 16.sp, fontWeight = FontWeight.Bold, color = VerdeBosque)
                 Icon(Icons.Filled.Close, "Cerrar", tint = GrisMedio,
                     modifier = Modifier.size(20.dp).clickable { onClose() })
             }
             Spacer(Modifier.height(14.dp))
-            when (panel) {
-                "plagas"     -> PlagasInfo(cultivo)
-                "nutrientes" -> NutrientesInfo(cultivo)
-                "satelite"   -> SateliteInfo(cultivo)
-            }
+            InfoRow("Parcela",        cultivo.nombre)
+            InfoRow("Tipo",           cultivo.tipoCultivo.ifBlank { "—" })
+            InfoRow("Área",           "${cultivo.hectareas} hectáreas")
+            InfoRow("Último escaneo", cultivo.ultimoEscaneo.ifBlank { "Sin escaneos aún" })
+            InfoRow("Estado",         cultivo.estadoTexto())
+            InfoRow("Coordenadas",    cultivo.ubicacion.ifBlank { "Sin ubicación" })
         }
     }
-}
-
-@Composable
-private fun PlagasInfo(cultivo: Cultivo) {
-    val tienePlagas = cultivo.plagasDetectadas
-    val color = if (tienePlagas) Color(0xFFD32F2F) else Color(0xFF4CAF50)
-    val icon  = if (tienePlagas) Icons.Filled.BugReport else Icons.Filled.CheckCircle
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, tint = color, modifier = Modifier.size(28.dp))
-        Spacer(Modifier.width(10.dp))
-        Text(if (tienePlagas) "Plaga detectada en la parcela" else "Sin plagas detectadas",
-            fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = color)
-    }
-    Spacer(Modifier.height(10.dp))
-    Text(
-        if (tienePlagas)
-            "Se detectaron signos de plaga en el área escaneada. Se recomienda aplicar tratamiento preventivo en las zonas marcadas en rojo sobre el mapa."
-        else
-            "No se detectó ninguna plaga durante el último escaneo. El cultivo se encuentra libre de infestaciones.",
-        fontSize = 13.sp, color = GrisHumo, lineHeight = 20.sp
-    )
-}
-
-@Composable
-private fun NutrientesInfo(cultivo: Cultivo) {
-    if (cultivo.nitrogenio <= 0f && cultivo.fosforo <= 0f && cultivo.potasio <= 0f) {
-        Text("Realiza un escaneo para obtener los niveles de nutrientes de esta parcela.",
-            fontSize = 13.sp, color = GrisMedio, lineHeight = 20.sp)
-        return
-    }
-    listOf(
-        Triple("Nitrógeno (N)", cultivo.nitrogenio, 80f),
-        Triple("Fósforo (P)",   cultivo.fosforo,    80f),
-        Triple("Potasio (K)",   cultivo.potasio,    80f)
-    ).forEach { (nombre, valor, max) ->
-        val pct   = (valor / max).coerceIn(0f, 1f)
-        val color = when {
-            pct < 0.4f  -> Color(0xFFD32F2F)
-            pct < 0.65f -> Color(0xFFFFA000)
-            else        -> Color(0xFF4CAF50)
-        }
-        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically) {
-            Text(nombre, fontSize = 12.sp, color = GrisHumo, modifier = Modifier.width(100.dp))
-            LinearProgressIndicator(
-                progress = { pct },
-                modifier = Modifier.weight(1f).height(8.dp).clip(RoundedCornerShape(4.dp)),
-                color = color, trackColor = GrisClaro
-            )
-            Spacer(Modifier.width(8.dp))
-            Text("${valor.toInt()}", fontSize = 12.sp, color = color,
-                fontWeight = FontWeight.Bold, modifier = Modifier.width(30.dp))
-        }
-    }
-}
-
-@Composable
-private fun SateliteInfo(cultivo: Cultivo) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.Filled.Satellite, null, tint = VerdeBosque, modifier = Modifier.size(26.dp))
-        Spacer(Modifier.width(10.dp))
-        Text("Datos del último escaneo", fontSize = 14.sp,
-            fontWeight = FontWeight.SemiBold, color = VerdeBosque)
-    }
-    Spacer(Modifier.height(10.dp))
-    InfoRow("Parcela",        cultivo.nombre)
-    InfoRow("Tipo",           cultivo.tipoCultivo.ifBlank { "—" })
-    InfoRow("Área",           "${cultivo.hectareas} hectáreas")
-    InfoRow("Último escaneo", cultivo.ultimoEscaneo.ifBlank { "Sin escaneos aún" })
-    InfoRow("Estado",         cultivo.estadoTexto())
-    if (cultivo.humedadPromedio > 0f)
-        InfoRow("Humedad suelo", "${"%.1f".format(cultivo.humedadPromedio)}%")
-    if (cultivo.ubicacion.isNotBlank())
-        InfoRow("Coordenadas", cultivo.ubicacion)
 }
 
 @Composable
