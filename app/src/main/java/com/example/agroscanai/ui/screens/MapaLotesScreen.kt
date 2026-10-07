@@ -43,6 +43,7 @@ import com.example.agroscanai.data.model.EstadoCultivo
 import com.example.agroscanai.ui.components.AgroBottomBar
 import com.example.agroscanai.ui.components.PaginaActual
 import com.example.agroscanai.ui.theme.*
+import com.example.agroscanai.ui.components.colorEstado
 import com.example.agroscanai.ui.viewmodel.CultivosViewModel
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
@@ -196,12 +197,7 @@ private fun SeleccionarLoteStep(
 
 @Composable
 private fun LoteCard(cultivo: Cultivo, onClick: () -> Unit) {
-    val estadoColor = when (cultivo.estadoEnum()) {
-        EstadoCultivo.SALUDABLE   -> Color(0xFF4CAF50)
-        EstadoCultivo.ALERTA      -> Color(0xFFFFA000)
-        EstadoCultivo.CRITICO     -> Color(0xFFD32F2F)
-        EstadoCultivo.SIN_ESCANEO -> GrisMedio
-    }
+    val estadoColor = colorEstado(cultivo.estadoEnum())
     Card(
         modifier = Modifier.fillMaxWidth().clickable { onClick() },
         shape = RoundedCornerShape(16.dp),
@@ -272,12 +268,7 @@ private fun MapaLoteStep(
     Column(modifier = Modifier.fillMaxSize()) {
 
         // ── Tarjeta info del cultivo ────────────────────────────────────────
-        val estadoColor = when (cultivo.estadoEnum()) {
-            EstadoCultivo.SALUDABLE   -> Color(0xFF4CAF50)
-            EstadoCultivo.ALERTA      -> Color(0xFFFFA000)
-            EstadoCultivo.CRITICO     -> Color(0xFFD32F2F)
-            EstadoCultivo.SIN_ESCANEO -> GrisMedio
-        }
+        val estadoColor = colorEstado(cultivo.estadoEnum())
         Card(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
             shape = RoundedCornerShape(14.dp),
@@ -302,8 +293,7 @@ private fun MapaLoteStep(
                     Text(
                         buildString {
                             append("${cultivo.hectareas} ha")
-                            if (cultivo.ultimoEscaneo.isNotBlank() &&
-                                cultivo.ultimoEscaneo != "Sin escaneos aún")
+                            if (cultivo.tieneEscaneo())
                                 append(" · Escaneo: ${cultivo.ultimoEscaneo}")
                         },
                         fontSize = 11.sp, color = GrisMedio
@@ -587,7 +577,7 @@ private fun MapaInfoPanel(cultivo: Cultivo, onClose: () -> Unit) {
             InfoRow("Parcela",        cultivo.nombre)
             InfoRow("Tipo",           cultivo.tipoCultivo.ifBlank { "—" })
             InfoRow("Área",           "${cultivo.hectareas} hectáreas")
-            InfoRow("Último escaneo", cultivo.ultimoEscaneo.ifBlank { "Sin escaneos aún" })
+            InfoRow("Último escaneo", if (cultivo.tieneEscaneo()) cultivo.ultimoEscaneo else "Sin escaneos aún")
             InfoRow("Estado",         cultivo.estadoTexto())
             InfoRow("Coordenadas",    cultivo.ubicacion.ifBlank { "Sin ubicación" })
         }

@@ -26,6 +26,7 @@ import com.example.agroscanai.data.model.EstadoCultivo
 import com.example.agroscanai.ui.components.AgroBottomBar
 import com.example.agroscanai.ui.components.PaginaActual
 import com.example.agroscanai.ui.theme.*
+import com.example.agroscanai.ui.components.colorEstado
 import com.example.agroscanai.ui.viewmodel.CultivosViewModel
 
 @Composable
@@ -167,24 +168,9 @@ private fun CultivoSeleccionCard(
     cultivo: Cultivo,
     onClick: () -> Unit
 ) {
-    val estadoColor = when (cultivo.estadoEnum()) {
-        EstadoCultivo.SALUDABLE  -> VerdeEsmeralda
-        EstadoCultivo.ALERTA     -> Color(0xFFFF8F00)
-        EstadoCultivo.CRITICO    -> RojoAlerta
-        EstadoCultivo.SIN_ESCANEO -> GrisMedio
-    }
-    val estadoLabel = when (cultivo.estadoEnum()) {
-        EstadoCultivo.SALUDABLE  -> "Saludable"
-        EstadoCultivo.ALERTA     -> "En alerta"
-        EstadoCultivo.CRITICO    -> "Crítico"
-        EstadoCultivo.SIN_ESCANEO -> "Sin escaneo"
-    }
-    val estadoBg = when (cultivo.estadoEnum()) {
-        EstadoCultivo.SALUDABLE  -> Color(0xFFE8F5E9)
-        EstadoCultivo.ALERTA     -> Color(0xFFFFF3E0)
-        EstadoCultivo.CRITICO    -> Color(0xFFFFEBEE)
-        EstadoCultivo.SIN_ESCANEO -> Color(0xFFF5F5F5)
-    }
+    val estadoColor = colorEstado(cultivo.estadoEnum())
+    val estadoLabel = cultivo.estadoTexto()
+    val estadoBg = estadoColor.copy(alpha = 0.10f)
 
     Card(
         modifier = Modifier
@@ -227,7 +213,7 @@ private fun CultivoSeleccionCard(
                     color = GrisMedio,
                     modifier = Modifier.padding(top = 2.dp)
                 )
-                if (cultivo.ultimoEscaneo.isNotBlank() && cultivo.ultimoEscaneo != "Sin escaneos aún") {
+                if (cultivo.tieneEscaneo()) {
                     Text(
                         text = "Último escaneo: ${cultivo.ultimoEscaneo}",
                         fontSize = 11.sp,

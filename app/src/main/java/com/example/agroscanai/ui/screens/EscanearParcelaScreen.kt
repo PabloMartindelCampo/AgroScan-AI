@@ -36,6 +36,7 @@ import com.example.agroscanai.data.model.EstadoCultivo
 import com.example.agroscanai.ui.components.AgroBottomBar
 import com.example.agroscanai.ui.components.PaginaActual
 import com.example.agroscanai.ui.theme.*
+import com.example.agroscanai.ui.components.colorEstado
 import com.example.agroscanai.ui.viewmodel.CultivosViewModel
 
 
@@ -183,12 +184,7 @@ private fun SeleccionarParcelaStep(
 
 @Composable
 private fun ParcelaSeleccionCard(cultivo: Cultivo, onClick: () -> Unit) {
-    val estadoColor = when (cultivo.estadoEnum()) {
-        EstadoCultivo.SALUDABLE  -> VerdeEsmeralda
-        EstadoCultivo.ALERTA     -> Color(0xFFFFA000)
-        EstadoCultivo.CRITICO    -> RojoAlerta
-        EstadoCultivo.SIN_ESCANEO -> GrisMedio
-    }
+    val estadoColor = colorEstado(cultivo.estadoEnum())
 
     Card(
         modifier = Modifier.fillMaxWidth().clickable { onClick() },

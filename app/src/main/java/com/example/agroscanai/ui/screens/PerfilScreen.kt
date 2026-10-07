@@ -65,7 +65,8 @@ fun PerfilScreen(
     // Stats derived from cultivos
     val totalCultivos  = cultivos.size
     val totalHectareas = cultivos.sumOf { it.hectareas }
-    val conEscaneo     = cultivos.count { it.ultimoEscaneo != "Sin escaneos aún" && it.ultimoEscaneo.isNotBlank() }
+    // Solo parcelas con al menos una foto analizada por el modelo
+    val conEscaneo     = cultivos.count { it.tieneFotoAnalizada() }
 
     Scaffold(
         snackbarHost = {

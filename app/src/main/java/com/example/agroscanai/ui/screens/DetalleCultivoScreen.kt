@@ -1,6 +1,5 @@
 package com.example.agroscanai.ui.screens
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -16,20 +15,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.agroscanai.data.model.Escaneo
 import com.example.agroscanai.data.model.EstadoCultivo
+import com.example.agroscanai.data.model.EstadoEscaneo
 import com.example.agroscanai.ui.components.AgroBottomBar
 import com.example.agroscanai.ui.components.PaginaActual
+import com.example.agroscanai.ui.components.RecomendacionCultivo
+import com.example.agroscanai.ui.components.colorEstado
 import com.example.agroscanai.ui.theme.*
 import com.example.agroscanai.ui.viewmodel.CultivosViewModel
-import com.example.agroscanai.ui.viewmodel.UltimoEscaneoData
 
 @Composable
 fun DetalleCultivoScreen(
@@ -88,23 +88,18 @@ fun DetalleCultivoScreen(
         return
     }
 
-    val estadoColor = when (cultivo.estadoEnum()) {
-        EstadoCultivo.SALUDABLE   -> VerdeEsmeralda
-        EstadoCultivo.ALERTA      -> Color(0xFFFFA000)
-        EstadoCultivo.CRITICO     -> RojoAlerta
-        EstadoCultivo.SIN_ESCANEO -> GrisMedio
-    }
+    val estadoColor = colorEstado(cultivo.estadoEnum())
     val headerTop = when (cultivo.estadoEnum()) {
-        EstadoCultivo.CRITICO     -> Color(0xFF8B0000)
-        EstadoCultivo.ALERTA      -> Color(0xFF6D4C41)
-        EstadoCultivo.SALUDABLE   -> VerdeBosqueOscuro
-        EstadoCultivo.SIN_ESCANEO -> Color(0xFF455A64)
+        EstadoCultivo.ENFERMEDAD         -> Color(0xFF8B0000)
+        EstadoCultivo.PENDIENTE_ANALISIS -> Color(0xFF0D47A1)
+        EstadoCultivo.SANA               -> VerdeBosqueOscuro
+        EstadoCultivo.SIN_ESCANEO        -> Color(0xFF455A64)
     }
     val headerBot = when (cultivo.estadoEnum()) {
-        EstadoCultivo.CRITICO     -> Color(0xFFD32F2F)
-        EstadoCultivo.ALERTA      -> Color(0xFFFFA000)
-        EstadoCultivo.SALUDABLE   -> VerdeBosque
-        EstadoCultivo.SIN_ESCANEO -> Color(0xFF607D8B)
+        EstadoCultivo.ENFERMEDAD         -> Color(0xFFD32F2F)
+        EstadoCultivo.PENDIENTE_ANALISIS -> Color(0xFF1565C0)
+        EstadoCultivo.SANA               -> VerdeBosque
+        EstadoCultivo.SIN_ESCANEO        -> Color(0xFF607D8B)
     }
 
     Scaffold(
@@ -137,17 +132,12 @@ fun DetalleCultivoScreen(
                 modifier = Modifier.fillMaxWidth().padding(top = 56.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                val estadoLabel = when (cultivo.estadoEnum()) {
-                    EstadoCultivo.SALUDABLE   -> "Saludable"
-                    EstadoCultivo.ALERTA      -> "En alerta"
-                    EstadoCultivo.CRITICO     -> "Crítico"
-                    EstadoCultivo.SIN_ESCANEO -> "Sin escaneo"
-                }
+                val estadoLabel = cultivo.estadoTexto()
                 val badgeBg = when (cultivo.estadoEnum()) {
-                    EstadoCultivo.SALUDABLE   -> Color(0xFF1B5E20)
-                    EstadoCultivo.ALERTA      -> Color(0xFFE65100)
-                    EstadoCultivo.CRITICO     -> Color(0xFFB71C1C)
-                    EstadoCultivo.SIN_ESCANEO -> Color(0xFF37474F)
+                    EstadoCultivo.SANA               -> Color(0xFF1B5E20)
+                    EstadoCultivo.PENDIENTE_ANALISIS -> Color(0xFF0D47A1)
+                    EstadoCultivo.ENFERMEDAD         -> Color(0xFFB71C1C)
+                    EstadoCultivo.SIN_ESCANEO        -> Color(0xFF37474F)
                 }
                 Box(
                     modifier = Modifier
@@ -175,84 +165,37 @@ fun DetalleCultivoScreen(
             shape     = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 16.dp, bottomEnd = 16.dp),
             elevation = CardDefaults.cardElevation(4.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(20.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                // Donut índice de salud
-                val saludColor = when {
-                    cultivo.indiceSalud >= 70f -> VerdeEsmeralda
-                    cultivo.indiceSalud >= 40f -> Color(0xFFFFA000)
-                    cultivo.indiceSalud > 0f   -> RojoAlerta
-                    else                       -> GrisMedio
+            Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    MiniStat("Área",           "${cultivo.hectareas} ha", Color(0xFF6A1B9A))
+                    MiniStat("Último escaneo", if (cultivo.tieneEscaneo()) cultivo.ultimoEscaneo else "—", GrisHumo)
                 }
-                val displaySalud = cultivo.indiceSalud.coerceAtLeast(0f)
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.size(92.dp)) {
-                    Canvas(modifier = Modifier.size(92.dp)) {
-                        drawArc(
-                            color = saludColor.copy(alpha = 0.15f),
-                            startAngle = -210f, sweepAngle = 240f,
-                            useCenter = false,
-                            style = Stroke(width = 10.dp.toPx(), cap = StrokeCap.Round)
-                        )
-                        drawArc(
-                            color = saludColor,
-                            startAngle = -210f,
-                            sweepAngle = 240f * (displaySalud / 100f).coerceIn(0f, 1f),
-                            useCenter = false,
-                            style = Stroke(width = 10.dp.toPx(), cap = StrokeCap.Round)
-                        )
-                    }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("${displaySalud.toInt()}%", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = saludColor)
-                        Text("Salud", fontSize = 10.sp, color = GrisMedio)
-                    }
-                }
-
-                // Columna 1
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    MiniStat("Humedad",    "${cultivo.humedadPromedio.toInt()}%",   Color(0xFF1565C0))
-                    MiniStat("Nitrógeno",  "${cultivo.nitrogenio.toInt()} ppm",     VerdeBosque)
-                    MiniStat("Área",       "${cultivo.hectareas} ha",               Color(0xFF6A1B9A))
-                }
-
-                // Columna 2
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    MiniStat("Fósforo",    "${cultivo.fosforo.toInt()} ppm",        Color(0xFFE65100))
-                    MiniStat("Potasio",    "${cultivo.potasio.toInt()} ppm",        Color(0xFF00695C))
-                    MiniStat(
-                        "Plagas",
-                        if (cultivo.plagasDetectadas) "Detectadas" else "No",
-                        if (cultivo.plagasDetectadas) RojoAlerta else VerdeEsmeralda
-                    )
-                }
+                Spacer(Modifier.height(12.dp))
+                Text(cultivo.descripcionSalud(), fontSize = 12.sp, color = estadoColor,
+                    textAlign = TextAlign.Center, lineHeight = 17.sp,
+                    modifier = Modifier.fillMaxWidth())
             }
         }
 
         Spacer(Modifier.height(12.dp))
 
-        if (cultivo.nitrogenio > 0f || cultivo.fosforo > 0f || cultivo.potasio > 0f) {
-            Card(
-                modifier  = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                colors    = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                shape     = RoundedCornerShape(16.dp),
-                elevation = CardDefaults.cardElevation(2.dp)
-            ) {
-                Column(modifier = Modifier.padding(20.dp)) {
-                    Text("Niveles de nutrientes", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = VerdeBosque)
-                    Spacer(Modifier.height(14.dp))
-                    NutrienteBar("Nitrógeno (N)", cultivo.nitrogenio,      150f, VerdeBosque)
-                    Spacer(Modifier.height(10.dp))
-                    NutrienteBar("Fósforo (P)",   cultivo.fosforo,         150f, Color(0xFFE65100))
-                    Spacer(Modifier.height(10.dp))
-                    NutrienteBar("Potasio (K)",   cultivo.potasio,         200f, Color(0xFF00695C))
-                    Spacer(Modifier.height(10.dp))
-                    NutrienteBar("Humedad suelo", cultivo.humedadPromedio, 100f, Color(0xFF1565C0))
-                }
+        Card(
+            modifier  = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            colors    = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape     = RoundedCornerShape(16.dp),
+            elevation = CardDefaults.cardElevation(2.dp)
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Text("Recomendación", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = VerdeBosque)
+                Spacer(Modifier.height(12.dp))
+                RecomendacionCultivo(cultivo = cultivo)
             }
-            Spacer(Modifier.height(12.dp))
         }
+
+        Spacer(Modifier.height(12.dp))
 
          Card(
             modifier  = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -271,7 +214,7 @@ fun DetalleCultivoScreen(
                     InfoFilaCultivo(Icons.Filled.CalendarToday, "Fecha de siembra", cultivo.fechaSiembra,                         Color(0xFF1565C0))
                 if (cultivo.ubicacion.isNotBlank())
                     InfoFilaCultivo(Icons.Filled.LocationOn,    "Ubicación",       cultivo.ubicacion,                             Color(0xFFE65100))
-                InfoFilaCultivo(Icons.Filled.Schedule,      "Último escaneo",  cultivo.ultimoEscaneo.ifBlank { "Sin escaneos aún" }, GrisMedio)
+                InfoFilaCultivo(Icons.Filled.Schedule,      "Último escaneo",  if (cultivo.tieneEscaneo()) cultivo.ultimoEscaneo else "Sin escaneos aún", GrisMedio)
             }
         }
 
@@ -309,7 +252,7 @@ fun DetalleCultivoScreen(
                         }
                         ultimoEscaneo != null -> EscaneoDetalleContent(ultimoEscaneo!!)
                         else -> Text(
-                            "Esta parcela aún no tiene escaneos registrados.",
+                            "Esta parcela aún no tiene escaneos por foto registrados.",
                             fontSize = 13.sp, color = GrisMedio,
                             textAlign = TextAlign.Center,
                             modifier = Modifier.fillMaxWidth()
@@ -351,24 +294,6 @@ private fun MiniStat(label: String, value: String, color: Color) {
 }
 
 @Composable
-private fun NutrienteBar(nombre: String, valor: Float, max: Float, color: Color) {
-    val progreso = (valor / max).coerceIn(0f, 1f)
-    Column {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(nombre, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Medium)
-            Text("${valor.toInt()}", fontSize = 12.sp, color = color, fontWeight = FontWeight.Bold)
-        }
-        Spacer(Modifier.height(4.dp))
-        LinearProgressIndicator(
-            progress    = progreso,
-            modifier    = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
-            color       = color,
-            trackColor  = color.copy(alpha = 0.15f)
-        )
-    }
-}
-
-@Composable
 private fun InfoFilaCultivo(icon: ImageVector, label: String, value: String, color: Color) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
@@ -391,31 +316,23 @@ private fun InfoFilaCultivo(icon: ImageVector, label: String, value: String, col
 }
 
 @Composable
-private fun EscaneoDetalleContent(esc: UltimoEscaneoData) {
+private fun EscaneoDetalleContent(esc: Escaneo) {
+    val analizado = esc.estadoGeneral == EstadoEscaneo.COMPLETADO
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (esc.fecha.isNotBlank())
             EscaneoFila("Fecha del escaneo", esc.fecha, Icons.Filled.Schedule, GrisMedio)
         EscaneoFila(
-            "Confianza IA", "${esc.confianzaIA}%",
-            Icons.Filled.Analytics, Color(0xFF6A1B9A)
+            "Análisis",
+            if (analizado) "Analizada por el modelo" else "Pendiente de análisis",
+            Icons.Filled.Analytics, Color(0xFF1565C0)
         )
         EscaneoFila(
-            "Plagas detectadas",
-            if (esc.plagasDetectadas) "Sí${if (esc.descripcionPlagas.isNotBlank()) " — ${esc.descripcionPlagas}" else ""}"
-            else "No se detectaron plagas",
-            Icons.Filled.BugReport,
-            if (esc.plagasDetectadas) RojoAlerta else VerdeEsmeralda
+            "Coordenadas GPS",
+            if (esc.gpsLat != null && esc.gpsLon != null)
+                "Lat: %.5f  Lon: %.5f".format(esc.gpsLat, esc.gpsLon)
+            else "No disponible",
+            Icons.Filled.LocationOn, Color(0xFF6A1B9A)
         )
-        if (esc.estresSuelo.isNotBlank())
-            EscaneoFila("Estrés del suelo", esc.estresSuelo, Icons.Filled.Terrain, Color(0xFFE65100))
-        if (esc.descripcionSuelo.isNotBlank())
-            EscaneoFila("Estado del suelo", esc.descripcionSuelo, Icons.Filled.Landscape, GrisMedio)
-        if (esc.descripcionNutrientes.isNotBlank())
-            EscaneoFila("Análisis nutricional", esc.descripcionNutrientes, Icons.Filled.Science, VerdeBosque)
-        if (esc.recomendacionNutrientes.isNotBlank())
-            EscaneoFila("Recomendación", esc.recomendacionNutrientes, Icons.Filled.Lightbulb, Color(0xFFF57F17))
-        if (esc.gpsLat != 0.0 || esc.gpsLon != 0.0)
-            EscaneoFila("Coordenadas GPS", "Lat: %.5f  Lon: %.5f".format(esc.gpsLat, esc.gpsLon), Icons.Filled.LocationOn, Color(0xFF1565C0))
     }
 }
 

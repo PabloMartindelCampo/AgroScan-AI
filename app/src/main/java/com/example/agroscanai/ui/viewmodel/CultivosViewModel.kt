@@ -5,9 +5,14 @@ import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.agroscanai.data.model.Cultivo
+import com.example.agroscanai.data.model.Escaneo
 import com.example.agroscanai.data.model.EstadoCultivo
+import com.example.agroscanai.data.model.EstadoEscaneo
+import com.example.agroscanai.data.model.SIN_ESCANEOS
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.ktx.auth
+import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
@@ -17,28 +22,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import com.example.agroscanai.utils.NotificacionHelper
 import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
-
-data class UltimoEscaneoData(
-    val fecha: String = "",
-    val confianzaIA: Int = 0,
-    val gpsLat: Double = 0.0,
-    val gpsLon: Double = 0.0,
-    val humedadSuelo: Float = 0f,
-    val estresSuelo: String = "",
-    val descripcionSuelo: String = "",
-    val plagasDetectadas: Boolean = false,
-    val descripcionPlagas: String = "",
-    val nivelNitrogenio: Float = 0f,
-    val nivelFosforo: Float = 0f,
-    val nivelPotasio: Float = 0f,
-    val descripcionNutrientes: String = "",
-    val recomendacionNutrientes: String = ""
-)
 
 class CultivosViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -56,13 +42,25 @@ class CultivosViewModel(application: Application) : AndroidViewModel(application
     private val _error      = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
-    private val _ultimoEscaneo = MutableStateFlow<UltimoEscaneoData?>(null)
-    val ultimoEscaneo: StateFlow<UltimoEscaneoData?> = _ultimoEscaneo.asStateFlow()
+    private val _ultimoEscaneo = MutableStateFlow<Escaneo?>(null)
+    val ultimoEscaneo: StateFlow<Escaneo?> = _ultimoEscaneo.asStateFlow()
 
     private val _cargandoEscaneo = MutableStateFlow(false)
     val cargandoEscaneo: StateFlow<Boolean> = _cargandoEscaneo.asStateFlow()
 
     private var snapshotListener: ListenerRegistration? = null
+
+    // ── Datos heredados del dron simulado ────────────────────────────────────
+
+    /**
+     * Los cultivos con estados del esquema anterior (SALUDABLE, ALERTA, CRITICO)
+     * vienen de escaneos simulados: se muestran como "Sin escaneo".
+     */
+    private fun normalizar(c: Cultivo): Cultivo {
+        val valido = EstadoCultivo.entries.any { it.name == c.estado }
+        return if (valido) c
+        else c.copy(estado = EstadoCultivo.SIN_ESCANEO.name, diagnostico = "", ultimoEscaneo = SIN_ESCANEOS)
+    }
 
     // ── SharedPreferences cache ──────────────────────────────────────────────
 
@@ -82,23 +80,18 @@ class CultivosViewModel(application: Application) : AndroidViewModel(application
         val json = prefs.getString(clave(), null) ?: return emptyList()
         return try {
             val tipo = object : TypeToken<List<Cultivo>>() {}.type
-            gson.fromJson(json, tipo) ?: emptyList()
+            (gson.fromJson<List<Cultivo>>(json, tipo) ?: emptyList()).map { normalizar(it) }
         } catch (_: Exception) { emptyList() }
     }
 
     /** Decide qué versión de un cultivo conservar: la que tiene el escaneo más reciente. */
     private fun tienEscaneo(c: Cultivo) =
-        c.ultimoEscaneo.isNotBlank() && c.ultimoEscaneo != "Sin escaneos aún"
+        c.ultimoEscaneo.isNotBlank() && c.ultimoEscaneo != SIN_ESCANEOS
 
     private fun copiarEscaneoLocal(fc: Cultivo, lc: Cultivo) = fc.copy(
-        estado           = lc.estado,
-        ultimoEscaneo    = lc.ultimoEscaneo,
-        humedadPromedio  = lc.humedadPromedio,
-        nitrogenio       = lc.nitrogenio,
-        fosforo          = lc.fosforo,
-        potasio          = lc.potasio,
-        plagasDetectadas = lc.plagasDetectadas,
-        indiceSalud      = lc.indiceSalud
+        estado        = lc.estado,
+        ultimoEscaneo = lc.ultimoEscaneo,
+        diagnostico   = lc.diagnostico
     )
 
     private fun mergeListas(
@@ -173,7 +166,7 @@ class CultivosViewModel(application: Application) : AndroidViewModel(application
             if (e != null) return@addSnapshotListener
 
             val firestoreLista = snapshot?.documents?.mapNotNull { doc ->
-                Cultivo(
+                normalizar(Cultivo(
                     id               = doc.id,
                     nombre           = doc.getString("nombre")           ?: "",
                     tipoCultivo      = doc.getString("tipoCultivo")      ?: "",
@@ -182,14 +175,9 @@ class CultivosViewModel(application: Application) : AndroidViewModel(application
                     fechaSiembra     = doc.getString("fechaSiembra")     ?: "",
                     ubicacion        = doc.getString("ubicacion")        ?: "",
                     estado           = doc.getString("estado")           ?: EstadoCultivo.SIN_ESCANEO.name,
-                    humedadPromedio  = (doc.getDouble("humedadPromedio") ?: 0.0).toFloat(),
-                    nitrogenio       = (doc.getDouble("nitrogenio")      ?: 0.0).toFloat(),
-                    fosforo          = (doc.getDouble("fosforo")         ?: 0.0).toFloat(),
-                    potasio          = (doc.getDouble("potasio")         ?: 0.0).toFloat(),
-                    indiceSalud      = (doc.getDouble("indiceSalud")     ?: 0.0).toFloat(),
-                    plagasDetectadas = doc.getBoolean("plagasDetectadas") ?: false,
+                    diagnostico      = doc.getString("diagnostico")      ?: "",
                     ultimoEscaneo    = doc.getString("ultimoEscaneo")    ?: ""
-                )
+                ))
             } ?: emptyList()
 
             // Merge: los datos locales de escaneo nunca son sobreescritos por Firestore
@@ -222,7 +210,7 @@ class CultivosViewModel(application: Application) : AndroidViewModel(application
                         "hectareas"       to hectareas,
                         "ubicacion"       to ubicacion,
                         "estado"          to EstadoCultivo.SIN_ESCANEO.name,
-                        "ultimoEscaneo"   to "Sin escaneos aún"
+                        "ultimoEscaneo"   to SIN_ESCANEOS
                     )
                 ).await()
             } catch (e: Exception) {
@@ -263,6 +251,28 @@ class CultivosViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    // ── Escaneos por foto ────────────────────────────────────────────────────
+
+    /** Convierte un documento de `escaneos`. Los escaneos sin foto (simulados) se ignoran. */
+    private fun docAEscaneo(cultivoId: String, doc: DocumentSnapshot): Escaneo? {
+        val fotoRuta = doc.getString("fotoRuta") ?: return null
+        if (fotoRuta.isBlank()) return null
+        return Escaneo(
+            id             = doc.id,
+            cultivoId      = cultivoId,
+            fecha          = doc.getString("fecha") ?: "",
+            fotoRuta       = fotoRuta,
+            gpsLat         = doc.getDouble("gpsLat"),
+            gpsLon         = doc.getDouble("gpsLon"),
+            estadoGeneral  = runCatching {
+                EstadoEscaneo.valueOf(doc.getString("estadoGeneral") ?: "")
+            }.getOrDefault(EstadoEscaneo.PENDIENTE),
+            claseDetectada = doc.getString("claseDetectada") ?: "",
+            confianza      = doc.getDouble("confianza")?.toFloat(),
+            modeloVersion  = doc.getString("modeloVersion") ?: ""
+        )
+    }
+
     fun cargarUltimoEscaneo(cultivoId: String) {
         if (userId().isEmpty() || cultivoId.isEmpty()) return
         viewModelScope.launch {
@@ -272,32 +282,50 @@ class CultivosViewModel(application: Application) : AndroidViewModel(application
                 val sdf = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
                 val snapshot = cultivosRef().document(cultivoId)
                     .collection("escaneos").get().await()
-                val doc = snapshot.documents
-                    .sortedByDescending { runCatching { sdf.parse(it.getString("fecha") ?: "") }.getOrNull() }
+                _ultimoEscaneo.value = snapshot.documents
+                    .mapNotNull { docAEscaneo(cultivoId, it) }
+                    .sortedByDescending { runCatching { sdf.parse(it.fecha) }.getOrNull() }
                     .firstOrNull()
-                if (doc != null) {
-                    _ultimoEscaneo.value = UltimoEscaneoData(
-                        fecha                   = doc.getString("fecha")                    ?: "",
-                        confianzaIA             = (doc.getLong("confianzaIA")               ?: 0L).toInt(),
-                        gpsLat                  = doc.getDouble("gpsLat")                   ?: 0.0,
-                        gpsLon                  = doc.getDouble("gpsLon")                   ?: 0.0,
-                        humedadSuelo            = (doc.getDouble("humedadSuelo")            ?: 0.0).toFloat(),
-                        estresSuelo             = doc.getString("estresSuelo")              ?: "",
-                        descripcionSuelo        = doc.getString("descripcionSuelo")         ?: "",
-                        plagasDetectadas        = doc.getBoolean("plagasDetectadas")        ?: false,
-                        descripcionPlagas       = doc.getString("descripcionPlagas")        ?: "",
-                        nivelNitrogenio         = (doc.getDouble("nivelNitrogenio")         ?: 0.0).toFloat(),
-                        nivelFosforo            = (doc.getDouble("nivelFosforo")            ?: 0.0).toFloat(),
-                        nivelPotasio            = (doc.getDouble("nivelPotasio")            ?: 0.0).toFloat(),
-                        descripcionNutrientes   = doc.getString("descripcionNutrientes")    ?: "",
-                        recomendacionNutrientes = doc.getString("recomendacionNutrientes")  ?: ""
-                    )
-                }
             } catch (_: Exception) {
             } finally {
                 _cargandoEscaneo.value = false
             }
         }
+    }
+
+    // ── Limpieza de datos simulados (NO se llama todavía) ────────────────────
+
+    /**
+     * Borra los datos de prueba del dron simulado del usuario actual:
+     *  - en cada cultivo, los documentos de `escaneos` que no tienen `fotoRuta`;
+     *  - los campos simulados del cultivo (humedad, N-P-K, índice de salud, etc.),
+     *    dejando el estado en SIN_ESCANEO si venía del esquema anterior;
+     *  - la copia local en SharedPreferences.
+     * Pendiente de confirmación del responsable del proyecto antes de conectarla.
+     */
+    @Suppress("unused")
+    private suspend fun limpiarDatosSimulados() {
+        if (userId().isEmpty()) return
+        val camposSimulados = listOf(
+            "humedadPromedio", "temperatura", "nitrogenio", "fosforo",
+            "potasio", "indiceSalud", "plagasDetectadas"
+        )
+        val cultivosDocs = cultivosRef().get().await().documents
+        for (doc in cultivosDocs) {
+            val escaneos = doc.reference.collection("escaneos").get().await().documents
+            escaneos.filter { (it.getString("fotoRuta") ?: "").isBlank() }
+                .forEach { it.reference.delete().await() }
+
+            val cambios = mutableMapOf<String, Any>()
+            camposSimulados.forEach { campo -> if (doc.contains(campo)) cambios[campo] = FieldValue.delete() }
+            val estado = doc.getString("estado") ?: ""
+            if (EstadoCultivo.entries.none { it.name == estado }) {
+                cambios["estado"] = EstadoCultivo.SIN_ESCANEO.name
+                cambios["ultimoEscaneo"] = SIN_ESCANEOS
+            }
+            if (cambios.isNotEmpty()) doc.reference.update(cambios).await()
+        }
+        prefs.edit().remove(clave()).commit()
     }
 
     fun clearError() { _error.value = null }

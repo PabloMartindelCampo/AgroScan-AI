@@ -7,6 +7,7 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.example.agroscanai.R
+import com.example.agroscanai.data.model.EstadoCultivo
 import kotlin.random.Random
 
 object NotificacionHelper {
@@ -34,7 +35,7 @@ object NotificacionHelper {
                     "Alertas de cultivos",
                     NotificationManager.IMPORTANCE_HIGH
                 ).apply {
-                    description = "Alertas urgentes: plagas detectadas o estado crítico"
+                    description = "Alertas: enfermedad detectada en una foto analizada"
                     enableVibration(true)
                 }
             )
@@ -44,29 +45,24 @@ object NotificacionHelper {
     fun notificarEscaneoCompleto(
         context: Context,
         nombreCultivo: String,
-        estado: String,           // "CRITICO" | "ALERTA" | "SALUDABLE"
-        plagasDetectadas: Boolean
+        estado: EstadoCultivo,
+        diagnostico: String
     ) {
-        val (canalId, titulo, cuerpo) = when {
-            plagasDetectadas -> Triple(
+        val (canalId, titulo, cuerpo) = when (estado) {
+            EstadoCultivo.ENFERMEDAD -> Triple(
                 CANAL_ALERTAS,
-                "⚠️ Plagas detectadas en $nombreCultivo",
-                "Se detectaron plagas en el escaneo. Revisa el dashboard de salud."
+                "⚠️ Enfermedad detectada en $nombreCultivo",
+                "El modelo detectó ${diagnostico.ifBlank { "una enfermedad" }} en la foto. Revisa la recomendación y consulta a un técnico."
             )
-            estado == "CRITICO" -> Triple(
-                CANAL_ALERTAS,
-                "🔴 Estado crítico en $nombreCultivo",
-                "El cultivo requiere atención urgente. Revisa el reporte."
-            )
-            estado == "ALERTA" -> Triple(
+            EstadoCultivo.SANA -> Triple(
                 CANAL_ESCANEOS,
-                "🟡 Alerta en $nombreCultivo",
-                "Se encontraron parámetros fuera de rango. Revisa el dashboard."
+                "✅ Escaneo completado: $nombreCultivo",
+                "El modelo clasificó la hoja como sana."
             )
             else -> Triple(
                 CANAL_ESCANEOS,
-                "✅ Escaneo completado: $nombreCultivo",
-                "El cultivo está en buen estado. Índice de salud actualizado."
+                "📷 Foto guardada: $nombreCultivo",
+                "La foto quedó registrada y está pendiente de análisis."
             )
         }
 

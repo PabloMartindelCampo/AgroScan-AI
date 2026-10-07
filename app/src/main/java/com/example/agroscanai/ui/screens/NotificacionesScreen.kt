@@ -47,9 +47,9 @@ fun NotificacionesScreen(
     val notificaciones: List<Notificacion> = remember(cultivos) {
         val lista = mutableListOf<Notificacion>()
 
-        val criticos   = cultivos.count { it.estadoEnum() == EstadoCultivo.CRITICO }
-        val alertas    = cultivos.count { it.estadoEnum() == EstadoCultivo.ALERTA }
-        val saludables = cultivos.count { it.estadoEnum() == EstadoCultivo.SALUDABLE }
+        val enfermas   = cultivos.count { it.estadoEnum() == EstadoCultivo.ENFERMEDAD }
+        val sanas      = cultivos.count { it.estadoEnum() == EstadoCultivo.SANA }
+        val pendientes = cultivos.count { it.estadoEnum() == EstadoCultivo.PENDIENTE_ANALISIS }
         val sinEscaneo = cultivos.count { it.estadoEnum() == EstadoCultivo.SIN_ESCANEO }
 
         if (cultivos.isNotEmpty()) {
@@ -57,34 +57,25 @@ fun NotificacionesScreen(
                 id = "resumen",
                 tipo = TipoNotif.INFO,
                 titulo = "Resumen de tus parcelas",
-                descripcion = "${cultivos.size} parcelas · $saludables saludable(s) · $alertas en alerta · $criticos crítica(s) · $sinEscaneo sin escaneo"
+                descripcion = "${cultivos.size} parcelas · $sanas sana(s) · $enfermas con enfermedad · $pendientes pendiente(s) de análisis · $sinEscaneo sin escaneo"
             ))
         }
 
-        cultivos.filter { it.estadoEnum() == EstadoCultivo.CRITICO }.forEach { c ->
+        cultivos.filter { it.estadoEnum() == EstadoCultivo.ENFERMEDAD }.forEach { c ->
             lista.add(Notificacion(
-                id = "critico_${c.id}",
-                tipo = TipoNotif.CRITICA,
-                titulo = "Estado crítico: ${c.nombre}",
-                descripcion = buildString {
-                    append("La parcela '${c.nombre}' necesita atención URGENTE. ")
-                    if (c.plagasDetectadas) append("Se detectaron plagas activas. ")
-                    append("Humedad: ${c.humedadPromedio.toInt()}%.")
-                    if (c.nitrogenio > 0f) append(" Nitrógeno: ${c.nitrogenio.toInt()} ppm.")
-                }
-            ))
-        }
-
-        cultivos.filter { it.estadoEnum() == EstadoCultivo.ALERTA }.forEach { c ->
-            lista.add(Notificacion(
-                id = "alerta_${c.id}",
+                id = "enfermedad_${c.id}",
                 tipo = TipoNotif.ALERTA,
-                titulo = "Alerta en: ${c.nombre}",
-                descripcion = buildString {
-                    append("La parcela '${c.nombre}' requiere revisión. ")
-                    append("Humedad: ${c.humedadPromedio.toInt()}%.")
-                    if (c.nitrogenio > 0f) append(" N: ${c.nitrogenio.toInt()} ppm · P: ${c.fosforo.toInt()} ppm · K: ${c.potasio.toInt()} ppm.")
-                }
+                titulo = "${c.estadoTexto()} en ${c.nombre}",
+                descripcion = "El modelo detectó ${c.diagnostico.ifBlank { "una enfermedad" }} en la última foto de '${c.nombre}' (${c.ultimoEscaneo}). Revisa la recomendación y consulta a un técnico."
+            ))
+        }
+
+        cultivos.filter { it.estadoEnum() == EstadoCultivo.PENDIENTE_ANALISIS }.forEach { c ->
+            lista.add(Notificacion(
+                id = "pendiente_${c.id}",
+                tipo = TipoNotif.INFO,
+                titulo = "Foto pendiente de análisis: ${c.nombre}",
+                descripcion = "La foto del ${c.ultimoEscaneo} está guardada. El diagnóstico aparecerá cuando el modelo de IA esté disponible."
             ))
         }
 
@@ -93,20 +84,7 @@ fun NotificacionesScreen(
                 id = "sinEscaneo_${c.id}",
                 tipo = TipoNotif.RECORDATORIO,
                 titulo = "Escaneo pendiente: ${c.nombre}",
-                descripcion = "La parcela '${c.nombre}' aún no ha sido escaneada. Conecta tu dron y realiza un escaneo para monitorear su salud."
-            ))
-        }
-
-        cultivos.filter {
-            it.estadoEnum() == EstadoCultivo.SALUDABLE &&
-            it.nitrogenio > 0f &&
-            (it.nitrogenio < 50f || it.fosforo < 50f || it.potasio < 60f)
-        }.forEach { c ->
-            lista.add(Notificacion(
-                id = "nutrientes_${c.id}",
-                tipo = TipoNotif.RECORDATORIO,
-                titulo = "Nutrientes bajos: ${c.nombre}",
-                descripcion = "Aunque '${c.nombre}' está saludable, algunos nutrientes están por debajo del óptimo. Considera aplicar fertilizante."
+                descripcion = "La parcela '${c.nombre}' aún no ha sido escaneada. Toma una foto de una hoja desde \"Escanear Parcela\"."
             ))
         }
 

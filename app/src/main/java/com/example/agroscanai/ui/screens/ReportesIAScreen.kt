@@ -23,103 +23,54 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.agroscanai.data.model.CatalogoFrijol
 import com.example.agroscanai.data.model.Cultivo
 import com.example.agroscanai.data.model.EstadoCultivo
 import com.example.agroscanai.ui.components.AgroBottomBar
 import com.example.agroscanai.ui.components.PaginaActual
+import com.example.agroscanai.ui.components.RecomendacionCultivo
+import com.example.agroscanai.ui.components.colorEstado
 import com.example.agroscanai.ui.theme.*
 import com.example.agroscanai.ui.viewmodel.CultivosViewModel
 
-// ── Reglas de análisis de IA (basadas en datos reales de escaneos) ────────────
+// ── Texto del reporte (solo datos registrados por los escaneos por foto) ───────
 
-private data class RecomendacionIA(
-    val texto: String,
-    val tipo: TipoRecom
-)
-
-private enum class TipoRecom { RIEGO, PLAGAS, FERTILIZANTE, OPTIMO, ATENCION }
-
-private fun generarAnalisisIA(cultivo: Cultivo): String {
-    val partes = mutableListOf<String>()
-
-    when {
-        cultivo.estadoEnum() == EstadoCultivo.SIN_ESCANEO ->
-            return "Sin datos de escaneo disponibles. Realiza un escaneo con el dron para obtener análisis detallado."
-        cultivo.estadoEnum() == EstadoCultivo.CRITICO ->
-            partes += "Estado crítico detectado. Se requiere intervención inmediata."
-        cultivo.estadoEnum() == EstadoCultivo.ALERTA ->
-            partes += "La parcela presenta irregularidades. Monitoreo frecuente recomendado."
-        else ->
-            partes += "La parcela se encuentra en buen estado de salud."
+/** Texto de recomendación de la tabla fija, solo si tiene fuente citada. */
+private fun textoRecomendacion(cultivo: Cultivo): String {
+    val clase = when (cultivo.estadoEnum()) {
+        EstadoCultivo.SANA       -> CatalogoFrijol.porEtiqueta(CatalogoFrijol.ETIQUETA_SANA)
+        EstadoCultivo.ENFERMEDAD -> CatalogoFrijol.porNombre(cultivo.diagnostico)
+        else                     -> null
     }
-
-    when {
-        cultivo.humedadPromedio < 10f -> partes += "Humedad muy baja (${cultivo.humedadPromedio.toInt()}%): riesgo de estrés hídrico severo."
-        cultivo.humedadPromedio < 20f -> partes += "Humedad baja (${cultivo.humedadPromedio.toInt()}%): se recomienda riego inmediato."
-        cultivo.humedadPromedio < 30f -> partes += "Humedad ligeramente baja (${cultivo.humedadPromedio.toInt()}%): monitorear el riego."
-        cultivo.humedadPromedio > 75f -> partes += "Humedad excesiva (${cultivo.humedadPromedio.toInt()}%): riesgo de hongos y pudrición radicular."
-        else                          -> partes += "Humedad óptima (${cultivo.humedadPromedio.toInt()}%)."
+    return when {
+        !cultivo.tieneFotoAnalizada() -> "Sin recomendación: no hay foto analizada."
+        clase == null || !CatalogoFrijol.tieneRecomendacionVerificada(clase) ->
+            "Recomendación pendiente de fuente verificada."
+        else -> "${clase.tratamiento} (Fuente: ${clase.fuente})"
     }
-
-    when {
-        cultivo.nitrogenio < 30f -> partes += "Nitrógeno muy bajo (${cultivo.nitrogenio.toInt()}%): fertilización urgente necesaria."
-        cultivo.nitrogenio < 50f -> partes += "Nitrógeno bajo (${cultivo.nitrogenio.toInt()}%): aplicar fertilizante nitrogenado."
-        cultivo.nitrogenio > 85f -> partes += "Exceso de nitrógeno (${cultivo.nitrogenio.toInt()}%): reducir fertilización."
-        else                     -> partes += "Nitrógeno en niveles adecuados (${cultivo.nitrogenio.toInt()}%)."
-    }
-
-    if (cultivo.fosforo < 40f)  partes += "Fósforo bajo (${cultivo.fosforo.toInt()}%): aplicar fosfato para mejorar enraizamiento."
-    if (cultivo.potasio < 50f)  partes += "Potasio bajo (${cultivo.potasio.toInt()}%): reforzar con fertilizante potásico."
-    if (cultivo.plagasDetectadas) partes += "Presencia de plagas detectada: aplicar tratamiento fitosanitario a la brevedad."
-
-    return partes.joinToString(" ")
 }
 
-private fun generarRecomendaciones(cultivo: Cultivo): List<RecomendacionIA> {
-    if (cultivo.estadoEnum() == EstadoCultivo.SIN_ESCANEO)
-        return listOf(RecomendacionIA("Realiza el primer escaneo con el dron", TipoRecom.ATENCION))
-
-    val lista = mutableListOf<RecomendacionIA>()
-
-    when {
-        cultivo.humedadPromedio < 20f ->
-            lista += RecomendacionIA("Riego urgente recomendado (humedad: ${cultivo.humedadPromedio.toInt()}%)", TipoRecom.RIEGO)
-        cultivo.humedadPromedio in 20f..30f ->
-            lista += RecomendacionIA("Monitorear y ajustar frecuencia de riego", TipoRecom.RIEGO)
-        else ->
-            lista += RecomendacionIA("Riego en niveles óptimos", TipoRecom.OPTIMO)
-    }
-
-    when {
-        cultivo.nitrogenio < 50f || cultivo.fosforo < 40f || cultivo.potasio < 50f ->
-            lista += RecomendacionIA("Aplicar fertilizante NPK balanceado", TipoRecom.FERTILIZANTE)
-        else ->
-            lista += RecomendacionIA("Nutrientes en equilibrio, mantener plan actual", TipoRecom.OPTIMO)
-    }
-
-    if (cultivo.plagasDetectadas)
-        lista += RecomendacionIA("Tratamiento fitosanitario urgente", TipoRecom.PLAGAS)
-    else
-        lista += RecomendacionIA("Sin plagas detectadas, continuar monitoreo preventivo", TipoRecom.OPTIMO)
-
-    return lista
+private fun textoCultivo(c: Cultivo): String = buildString {
+    appendLine("--- ${c.nombre} (${c.tipoCultivo}) ---")
+    appendLine("Estado: ${c.estadoTexto()}")
+    appendLine("Último escaneo: ${if (c.tieneEscaneo()) c.ultimoEscaneo else "Sin escaneos"}")
+    appendLine("Recomendación: ${textoRecomendacion(c)}")
+    appendLine(CatalogoFrijol.AVISO)
 }
 
 private fun construirTextoReporte(cultivos: List<Cultivo>): String {
     val sb = StringBuilder()
-    sb.appendLine("=== REPORTE DE IA — AGROSCAN AI ===")
+    sb.appendLine("=== REPORTE DE ESCANEOS — AGROSCAN AI ===")
     sb.appendLine("Fecha: ${java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date())}")
     sb.appendLine()
-    sb.appendLine("Resumen general: ${cultivos.size} cultivos analizados")
-    sb.appendLine("  Saludables: ${cultivos.count { it.estadoEnum() == EstadoCultivo.SALUDABLE }}")
-    sb.appendLine("  En alerta:  ${cultivos.count { it.estadoEnum() == EstadoCultivo.ALERTA }}")
-    sb.appendLine("  Críticos:   ${cultivos.count { it.estadoEnum() == EstadoCultivo.CRITICO }}")
+    sb.appendLine("Resumen general: ${cultivos.size} cultivos")
+    sb.appendLine("  Sanos:                 ${cultivos.count { it.estadoEnum() == EstadoCultivo.SANA }}")
+    sb.appendLine("  Con enfermedad:        ${cultivos.count { it.estadoEnum() == EstadoCultivo.ENFERMEDAD }}")
+    sb.appendLine("  Pendientes de análisis: ${cultivos.count { it.estadoEnum() == EstadoCultivo.PENDIENTE_ANALISIS }}")
+    sb.appendLine("  Sin escaneo:           ${cultivos.count { it.estadoEnum() == EstadoCultivo.SIN_ESCANEO }}")
     sb.appendLine()
     cultivos.forEach { c ->
-        sb.appendLine("--- ${c.nombre} (${c.tipoCultivo}) ---")
-        sb.appendLine("Estado: ${c.estadoTexto()}")
-        sb.appendLine("Índice de salud: ${c.indiceSalud.toInt()}%")
-        sb.appendLine("Análisis: ${generarAnalisisIA(c)}")
+        sb.append(textoCultivo(c))
         sb.appendLine()
     }
     return sb.toString()
@@ -138,9 +89,9 @@ fun ReportesIAScreen(
     val cultivos by cultivosViewModel.cultivos.collectAsState()
     val context  = LocalContext.current
 
-    val saludables = cultivos.count { it.estadoEnum() == EstadoCultivo.SALUDABLE }
-    val alertas    = cultivos.count { it.estadoEnum() == EstadoCultivo.ALERTA    }
-    val criticos   = cultivos.count { it.estadoEnum() == EstadoCultivo.CRITICO   }
+    val sanas      = cultivos.count { it.estadoEnum() == EstadoCultivo.SANA }
+    val enfermas   = cultivos.count { it.estadoEnum() == EstadoCultivo.ENFERMEDAD }
+    val pendientes = cultivos.count { it.estadoEnum() == EstadoCultivo.PENDIENTE_ANALISIS }
     val sinEscaneo = cultivos.count { it.estadoEnum() == EstadoCultivo.SIN_ESCANEO }
 
     Scaffold(
@@ -188,7 +139,7 @@ fun ReportesIAScreen(
                     Spacer(Modifier.height(8.dp))
                     Text("Reportes de IA", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     Text(
-                        "Análisis basado en datos reales de escaneos",
+                        "Resultados de los escaneos por foto",
                         fontSize = 13.sp,
                         color    = Color.White.copy(alpha = 0.75f)
                     )
@@ -209,7 +160,7 @@ fun ReportesIAScreen(
                             tint = GrisMedio, modifier = Modifier.size(64.dp))
                         Spacer(Modifier.height(12.dp))
                         Text("Sin cultivos registrados", fontSize = 16.sp, color = GrisMedio, fontWeight = FontWeight.SemiBold)
-                        Text("Agrega cultivos y realiza escaneos para ver análisis de IA.",
+                        Text("Agrega cultivos y escanea sus hojas para ver resultados.",
                             fontSize = 13.sp, color = GrisMedio)
                     }
                 }
@@ -235,31 +186,11 @@ fun ReportesIAScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
-                        ResumenChip(saludables.toString(), "Saludables", VerdeBosque)
-                        ResumenChip(alertas.toString(),    "En alerta",  Color(0xFFF57C00))
-                        ResumenChip(criticos.toString(),   "Críticos",   Color(0xFFD32F2F))
+                        ResumenChip(sanas.toString(),      "Sanas",       colorEstado(EstadoCultivo.SANA))
+                        ResumenChip(enfermas.toString(),   "Enfermas",    colorEstado(EstadoCultivo.ENFERMEDAD))
+                        ResumenChip(pendientes.toString(), "Pendientes",  colorEstado(EstadoCultivo.PENDIENTE_ANALISIS))
                         ResumenChip(sinEscaneo.toString(), "Sin escaneo", GrisMedio)
                     }
-                    Spacer(Modifier.height(12.dp))
-                    val promSalud = if (cultivos.isNotEmpty())
-                        cultivos.map { it.indiceSalud }.average().toFloat() else 0f
-                    Text(
-                        "Índice de salud promedio: ${promSalud.toInt()}%",
-                        fontSize   = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color      = Color(0xFF1A1A1A)
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    LinearProgressIndicator(
-                        progress  = { (promSalud / 100f).coerceIn(0f, 1f) },
-                        modifier  = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
-                        color     = when {
-                            promSalud >= 70 -> VerdeBosque
-                            promSalud >= 40 -> Color(0xFFF57C00)
-                            else            -> Color(0xFFD32F2F)
-                        },
-                        trackColor = Color(0xFFEEEEEE)
-                    )
                 }
             }
 
@@ -322,14 +253,7 @@ private fun ResumenChip(valor: String, etiqueta: String, color: Color) {
 private fun ReporteCard(cultivo: Cultivo, context: android.content.Context) {
     var expandido by remember { mutableStateOf(false) }
 
-    val estadoColor = when (cultivo.estadoEnum()) {
-        EstadoCultivo.SALUDABLE   -> VerdeBosque
-        EstadoCultivo.ALERTA      -> Color(0xFFF57C00)
-        EstadoCultivo.CRITICO     -> Color(0xFFD32F2F)
-        EstadoCultivo.SIN_ESCANEO -> GrisMedio
-    }
-    val recomendaciones = remember(cultivo) { generarRecomendaciones(cultivo) }
-    val analisisTexto   = remember(cultivo) { generarAnalisisIA(cultivo) }
+    val estadoColor = colorEstado(cultivo.estadoEnum())
 
     Card(
         modifier  = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -384,93 +308,29 @@ private fun ReporteCard(cultivo: Cultivo, context: android.content.Context) {
             ) {
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
 
-                    // Índice de salud
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Índice de salud:", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1A1A1A))
-                        Spacer(Modifier.width(8.dp))
-                        Text("${cultivo.indiceSalud.toInt()}%", fontSize = 13.sp, color = estadoColor, fontWeight = FontWeight.Bold)
-                    }
+                    Text(cultivo.descripcionSalud(), fontSize = 12.sp, color = Color(0xFF424242), lineHeight = 18.sp)
                     Spacer(Modifier.height(4.dp))
-                    LinearProgressIndicator(
-                        progress  = { (cultivo.indiceSalud / 100f).coerceIn(0f, 1f) },
-                        modifier  = Modifier.fillMaxWidth().height(7.dp).clip(RoundedCornerShape(4.dp)),
-                        color     = estadoColor,
-                        trackColor = Color(0xFFEEEEEE)
+                    Text(
+                        "Último escaneo: ${if (cultivo.tieneEscaneo()) cultivo.ultimoEscaneo else "Sin escaneos"}",
+                        fontSize = 11.sp, color = GrisMedio
                     )
 
                     Spacer(Modifier.height(12.dp))
 
-                    // Datos de sensores en chips
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        DatoChip("H: ${cultivo.humedadPromedio.toInt()}%", Color(0xFF1565C0))
-                        DatoChip("N: ${cultivo.nitrogenio.toInt()}%",      VerdeBosque)
-                        DatoChip("P: ${cultivo.fosforo.toInt()}%",         Color(0xFFE65100))
-                        DatoChip("K: ${cultivo.potasio.toInt()}%",         Color(0xFF6A1B9A))
-                    }
-
-                    Spacer(Modifier.height(12.dp))
-
-                    // Análisis de IA
-                    Text("Análisis de IA", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = VerdeBosque)
-                    Spacer(Modifier.height(4.dp))
-                    Text(analisisTexto, fontSize = 12.sp, color = Color(0xFF424242), lineHeight = 18.sp)
-
-                    Spacer(Modifier.height(12.dp))
-
-                    // Recomendaciones
-                    Text("Recomendaciones", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = VerdeBosque)
+                    Text("Recomendación", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = VerdeBosque)
                     Spacer(Modifier.height(6.dp))
-                    recomendaciones.forEach { rec ->
-                        val (bgColor, iconRes) = when (rec.tipo) {
-                            TipoRecom.RIEGO        -> Color(0xFFE3F2FD) to Icons.Filled.WaterDrop
-                            TipoRecom.PLAGAS       -> Color(0xFFFFEBEE) to Icons.Filled.BugReport
-                            TipoRecom.FERTILIZANTE -> Color(0xFFFFF3E0) to Icons.Filled.Science
-                            TipoRecom.OPTIMO       -> Color(0xFFE8F5E9) to Icons.Filled.CheckCircle
-                            TipoRecom.ATENCION     -> Color(0xFFFFF9C4) to Icons.Filled.Warning
-                        }
-                        val fgColor = when (rec.tipo) {
-                            TipoRecom.RIEGO        -> Color(0xFF1565C0)
-                            TipoRecom.PLAGAS       -> Color(0xFFD32F2F)
-                            TipoRecom.FERTILIZANTE -> Color(0xFFE65100)
-                            TipoRecom.OPTIMO       -> VerdeBosque
-                            TipoRecom.ATENCION     -> Color(0xFFF9A825)
-                        }
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 3.dp)
-                                .background(bgColor, RoundedCornerShape(8.dp))
-                                .padding(horizontal = 10.dp, vertical = 7.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(iconRes, contentDescription = null, tint = fgColor, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text(rec.texto, fontSize = 12.sp, color = fgColor)
-                        }
-                    }
+                    RecomendacionCultivo(cultivo = cultivo)
 
                     Spacer(Modifier.height(10.dp))
 
                     // Botón compartir reporte individual
                     OutlinedButton(
                         onClick = {
-                            val texto = buildString {
-                                appendLine("Reporte IA — ${cultivo.nombre}")
-                                appendLine("Estado: ${cultivo.estadoTexto()}")
-                                appendLine("Índice de salud: ${cultivo.indiceSalud.toInt()}%")
-                                appendLine()
-                                appendLine("Análisis: $analisisTexto")
-                                appendLine()
-                                appendLine("Recomendaciones:")
-                                recomendaciones.forEach { appendLine("• ${it.texto}") }
-                            }
+                            val texto = textoCultivo(cultivo)
                             val intent = Intent(Intent.ACTION_SEND).apply {
                                 type = "text/plain"
                                 putExtra(Intent.EXTRA_TEXT, texto)
-                                putExtra(Intent.EXTRA_SUBJECT, "Reporte IA — ${cultivo.nombre}")
+                                putExtra(Intent.EXTRA_SUBJECT, "Reporte de escaneo — ${cultivo.nombre}")
                             }
                             context.startActivity(Intent.createChooser(intent, "Compartir"))
                         },
@@ -488,16 +348,5 @@ private fun ReporteCard(cultivo: Cultivo, context: android.content.Context) {
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun DatoChip(texto: String, color: Color) {
-    Box(
-        modifier = Modifier
-            .background(color.copy(alpha = 0.1f), RoundedCornerShape(6.dp))
-            .padding(horizontal = 8.dp, vertical = 4.dp)
-    ) {
-        Text(texto, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = color)
     }
 }

@@ -35,6 +35,7 @@ import com.example.agroscanai.data.model.EstadoCultivo
 import com.example.agroscanai.ui.components.AgroBottomBar
 import com.example.agroscanai.ui.components.PaginaActual
 import com.example.agroscanai.ui.theme.*
+import com.example.agroscanai.ui.components.colorEstado
 import com.example.agroscanai.ui.viewmodel.CultivosViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -222,12 +223,7 @@ fun MisCultivosScreen(
 
 @Composable
 private fun CultivoCard(cultivo: Cultivo, onClick: () -> Unit) {
-    val estadoColor = when (cultivo.estadoEnum()) {
-        EstadoCultivo.SALUDABLE   -> Color(0xFF4CAF50)
-        EstadoCultivo.ALERTA      -> Color(0xFFFFA000)
-        EstadoCultivo.CRITICO     -> Color(0xFFD32F2F)
-        EstadoCultivo.SIN_ESCANEO -> GrisMedio
-    }
+    val estadoColor = colorEstado(cultivo.estadoEnum())
 
     Row(
         modifier = Modifier
@@ -274,9 +270,9 @@ private fun CultivoCard(cultivo: Cultivo, onClick: () -> Unit) {
                         .background(estadoColor)
                 )
                 Spacer(Modifier.width(4.dp))
-                Text("Salud - ${cultivo.estadoTexto()}", fontSize = 12.sp, color = GrisMedio)
+                Text("Estado - ${cultivo.estadoTexto()}", fontSize = 12.sp, color = GrisMedio)
             }
-            Text("Último escaneo - ${cultivo.ultimoEscaneo}", fontSize = 12.sp, color = GrisMedio)
+            Text("Último escaneo - ${if (cultivo.tieneEscaneo()) cultivo.ultimoEscaneo else "Sin escaneos aún"}", fontSize = 12.sp, color = GrisMedio)
             Text("Área - ${cultivo.hectareas} hectáreas", fontSize = 12.sp, color = GrisMedio)
         }
 
