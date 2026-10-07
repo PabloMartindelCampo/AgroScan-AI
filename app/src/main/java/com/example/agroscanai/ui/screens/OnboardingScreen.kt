@@ -35,12 +35,14 @@ private val pages = listOf(
     OnboardingPage(
         icon = Icons.Filled.Agriculture,
         title = "¿Qué es AgroScan AI?",
-        description = "AgroScan AI es una plataforma inteligente diseñada para agricultores modernos. Combina tecnología de drones con inteligencia artificial para monitorear, analizar y optimizar el estado de tus parcelas en tiempo real."
+        // REVISAR (sin dron): "tecnología de drones con" -> "fotos de hojas tomadas con tu celular e"
+        description = "AgroScan AI es una plataforma inteligente diseñada para agricultores modernos. Combina fotos de hojas tomadas con tu celular e inteligencia artificial para monitorear, analizar y optimizar el estado de tus parcelas en tiempo real."
     ),
     OnboardingPage(
         icon = Icons.Filled.BugReport,
         title = "Escaneo Inteligente",
-        description = "Mediante el uso de drones, AgroScan AI sobrevuela tus parcelas y captura imágenes detalladas. Nuestra IA analiza cada metro cuadrado para identificar plagas, exceso de humedad, zonas secas y cualquier anomalía que afecte tus cultivos."
+        // REVISAR (sin dron): "Mediante el uso de drones ... sobrevuela tus parcelas y captura imágenes detalladas ... cada metro cuadrado" -> foto de hoja con el celular / "cada foto"
+        description = "Con la cámara de tu celular, AgroScan AI captura fotos de las hojas de tus cultivos. Nuestra IA analiza cada foto para identificar plagas, exceso de humedad, zonas secas y cualquier anomalía que afecte tus cultivos."
     ),
     OnboardingPage(
         icon = Icons.Filled.Insights,

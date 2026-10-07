@@ -149,29 +149,32 @@ private fun infoConfig(tipo: TipoInfoLegal): InfoConfig = when (tipo) {
         subtitulo = "Versión 1.0.0",
         icono     = Icons.Filled.Info,
         secciones = listOf(
+            // REVISAR (sin dron): "combina drones con" -> "combina fotos de hojas tomadas con el celular e"
             SeccionInfo(
                 titulo = "¿Qué es AgroScan AI?",
                 icono  = Icons.Filled.Agriculture,
-                cuerpo = "AgroScan AI es una aplicación móvil de tecnología agrícola de precisión que combina drones con inteligencia artificial para ayudar a los agricultores a monitorear, analizar y gestionar la salud de sus cultivos de manera eficiente y en tiempo real."
+                cuerpo = "AgroScan AI es una aplicación móvil de tecnología agrícola de precisión que combina fotos de hojas tomadas con el celular e inteligencia artificial para ayudar a los agricultores a monitorear, analizar y gestionar la salud de sus cultivos de manera eficiente y en tiempo real."
             ),
             SeccionInfo(
                 titulo = "Nuestra misión",
                 icono  = Icons.Filled.EmojiObjects,
                 cuerpo = "Democratizar el acceso a la tecnología agrícola de precisión, permitiendo que productores de cualquier escala puedan tomar decisiones informadas basadas en datos reales de sus parcelas, reduciendo costos, minimizando el uso de agroquímicos y maximizando el rendimiento de sus cultivos."
             ),
+            // REVISAR (sin dron): se quita MAVLink/drones/análisis espectral/imágenes aéreas -> "fotos de hojas tomadas con la cámara del celular"
             SeccionInfo(
                 titulo = "Tecnología",
                 icono  = Icons.Filled.Sensors,
-                cuerpo = "La aplicación utiliza el protocolo MAVLink para comunicarse con drones profesionales (DJI, Phantom, ArduPilot, entre otros), análisis espectral de suelo e imágenes aéreas procesadas por algoritmos de inteligencia artificial para detectar niveles de humedad, nutrientes (N, P, K), presencia de plagas y estrés hídrico."
+                cuerpo = "La aplicación utiliza fotos de hojas tomadas con la cámara del celular, procesadas por algoritmos de inteligencia artificial para detectar niveles de humedad, nutrientes (N, P, K), presencia de plagas y estrés hídrico."
             ),
             SeccionInfo(
                 titulo = "Infraestructura",
                 icono  = Icons.Filled.Cloud,
                 cuerpo = "AgroScan AI está construida con Jetpack Compose para Android, Firebase como plataforma de autenticación y base de datos en la nube, y Google Cloud como infraestructura de backend. Todos los datos se almacenan de forma segura y cifrada."
             ),
+            // REVISAR (sin dron): se quita la línea "Compatibilidad: Drones con protocolo MAVLink v1/v2"
             SeccionInfo(
                 titulo = "Versión y compatibilidad",
-                cuerpo = "Versión: 1.0.0\nAndroid: 8.0 (API 26) o superior\nCompatibilidad: Drones con protocolo MAVLink v1/v2\nÚltima actualización: Abril 2026"
+                cuerpo = "Versión: 1.0.0\nAndroid: 8.0 (API 26) o superior\nÚltima actualización: Abril 2026"
             )
         ),
         ultimaActualizacion = "Última actualización: Abril 2026"
@@ -187,21 +190,18 @@ private fun infoConfig(tipo: TipoInfoLegal): InfoConfig = when (tipo) {
                 icono  = Icons.Filled.Gavel,
                 cuerpo = "Al descargar, instalar o usar AgroScan AI, usted acepta quedar vinculado por estos Términos y Condiciones. Si no está de acuerdo con alguna parte de estos términos, no podrá acceder al servicio. Estos términos se aplican a todos los visitantes, usuarios y otras personas que accedan o usen el servicio."
             ),
+            // REVISAR (sin dron): "integración con drones" -> "fotos de hojas"
             SeccionInfo(
                 titulo = "2. Descripción del servicio",
                 icono  = Icons.Filled.AppRegistration,
-                cuerpo = "AgroScan AI proporciona herramientas de monitoreo agrícola mediante integración con drones y análisis de inteligencia artificial. El servicio incluye gestión de cultivos, análisis de salud de parcelas, detección de plagas y nutrientes, visualización de mapas y generación de reportes."
+                cuerpo = "AgroScan AI proporciona herramientas de monitoreo agrícola mediante fotos de hojas y análisis de inteligencia artificial. El servicio incluye gestión de cultivos, análisis de salud de parcelas, detección de plagas y nutrientes, visualización de mapas y generación de reportes."
             ),
             SeccionInfo(
                 titulo = "3. Uso del servicio",
                 icono  = Icons.Filled.Rule,
                 cuerpo = "Usted acepta usar AgroScan AI únicamente para fines legales y de conformidad con estos Términos. No está permitido: (a) usar el servicio de manera que viole cualquier ley o regulación aplicable; (b) transmitir material dañino, ofensivo o ilegal; (c) intentar obtener acceso no autorizado a cualquier parte del servicio; (d) usar el servicio para usos distintos al monitoreo agrícola legítimo."
             ),
-            SeccionInfo(
-                titulo = "4. Responsabilidad sobre drones",
-                icono  = Icons.Filled.FlightTakeoff,
-                cuerpo = "El usuario es el único responsable del uso legal y seguro del equipo de vuelo no tripulado (drones). AgroScan AI no se responsabiliza por daños causados por el mal uso de drones, incumplimiento de regulaciones aeronáuticas locales, pérdida de equipos, o accidentes ocurridos durante operaciones de vuelo. El usuario debe obtener todos los permisos necesarios ante las autoridades aeronáuticas de su país."
-            ),
+            // REVISAR (sin dron): se eliminó la cláusula "4. Responsabilidad sobre drones" (la numeración no se modificó)
             SeccionInfo(
                 titulo = "5. Precisión de los datos",
                 icono  = Icons.Filled.Analytics,
@@ -299,16 +299,13 @@ private fun infoConfig(tipo: TipoInfoLegal): InfoConfig = when (tipo) {
         subtitulo = "Preguntas frecuentes y contacto",
         icono     = Icons.Filled.HelpOutline,
         secciones = listOf(
+            // REVISAR (sin dron): pasos del dron reemplazados por los pasos del escaneo por foto; ícono FlightTakeoff -> PhotoCamera
             SeccionInfo(
                 titulo = "¿Cómo escaneo una parcela?",
-                icono  = Icons.Filled.FlightTakeoff,
-                cuerpo = "1. Ve a 'Escanear Parcela' desde el menú principal.\n2. Selecciona la parcela que deseas escanear.\n3. Activa el WiFi de tu dispositivo y conecta el dron.\n4. Presiona 'Buscar dron' para detectarlo automáticamente.\n5. Si no tienes dron disponible, usa 'Modo Simulación' para probar la app.\n6. Una vez conectado, presiona 'Iniciar Escaneo'.\n7. Al finalizar, los resultados se guardan automáticamente en Firebase."
+                icono  = Icons.Filled.PhotoCamera,
+                cuerpo = "1. Ve a 'Escanear Parcela' desde el menú principal.\n2. Selecciona la parcela que deseas escanear.\n3. Presiona 'Tomar foto' y fotografía una sola hoja, de cerca y con buena luz, o elige una foto de la galería.\n4. La foto se guarda solo en tu teléfono; en Firebase se guardan la fecha, la ubicación y el resultado.\n5. Mientras el modelo de IA no esté disponible, el resultado aparece como 'Pendiente de análisis'."
             ),
-            SeccionInfo(
-                titulo = "¿Qué drones son compatibles?",
-                icono  = Icons.Filled.Sensors,
-                cuerpo = "AgroScan AI es compatible con drones que usen el protocolo MAVLink (v1 y v2), incluyendo: DJI (Phantom, Mavic, Mini, Spark), ArduPilot, PX4/PixHawk, Tello, y la mayoría de drones agrícolas profesionales. La app detecta automáticamente la red WiFi del dron y se conecta por UDP en el puerto 14550."
-            ),
+            // REVISAR (sin dron): se eliminó la pregunta "¿Qué drones son compatibles?"
             SeccionInfo(
                 titulo = "¿Por qué no aparecen mis cultivos?",
                 icono  = Icons.Filled.Agriculture,
