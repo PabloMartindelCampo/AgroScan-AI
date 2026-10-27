@@ -8,3 +8,9 @@ Coloca aquí el modelo de hojas de frijol cuando esté entrenado:
 
 Las etiquetas deben coincidir con CatalogoFrijol.kt. Mientras el modelo no exista,
 la app guarda cada foto como "Pendiente de análisis" y no muestra ningún diagnóstico.
+
+Modelo actual (2026-10-27): MobileNetV2 entrenado con iBean en
+entrenamiento/entrenar_modelo_frijol.ipynb; métricas en entrenamiento/metricas_modelo.json.
+SHA-256: 2cf0fd5b87362cb77bff2955c976b21506f547bb36c991ae68cc2647d664a5e2
+La app muestra como "versión del modelo" frijol-2cf0fd5b8736 (primeros 12 caracteres).
+Si se reemplaza el modelo, actualizar estas líneas.

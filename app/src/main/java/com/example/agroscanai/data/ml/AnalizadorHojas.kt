@@ -15,21 +15,22 @@ data class ResultadoAnalisis(
 )
 
 /**
- * Punto de integración del modelo de hojas de frijol (Fase 4: TensorFlow Lite).
+ * Punto de integración del modelo de hojas de frijol (TensorFlow Lite, ver AnalizadorTFLite).
  * Devuelve null cuando no hay modelo: el escaneo queda "Pendiente de análisis"
  * y nunca se muestra un diagnóstico inventado.
  */
 interface AnalizadorHojas {
-    fun analizar(foto: File): ResultadoAnalisis?
+    suspend fun analizar(foto: File): ResultadoAnalisis?
 }
 
-/** Implementación actual: el modelo aún no existe, así que no hay análisis. */
+/** Se usa cuando el modelo no está en assets: no hay análisis. */
 class AnalizadorNoDisponible : AnalizadorHojas {
-    override fun analizar(foto: File): ResultadoAnalisis? = null
+    override suspend fun analizar(foto: File): ResultadoAnalisis? = null
 }
 
 fun modeloEnAssets(context: Context): Boolean =
     runCatching { context.assets.open(MODELO_ASSET).close(); true }.getOrDefault(false)
 
-/** Elige el analizador. En la Fase 4 aquí se devolverá el analizador TFLite si el modelo existe. */
-fun crearAnalizador(context: Context): AnalizadorHojas = AnalizadorNoDisponible()
+/** Usa el modelo TFLite si está en assets; si no, los escaneos quedan pendientes. */
+fun crearAnalizador(context: Context): AnalizadorHojas =
+    if (modeloEnAssets(context)) AnalizadorTFLite(context) else AnalizadorNoDisponible()
